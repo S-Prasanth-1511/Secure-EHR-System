@@ -1,0 +1,26 @@
+# --- Python & Flask Standard ---
+__pycache__/
+*.py[cod]
+*$py.class
+instance/
+.pytest_cache/
+
+# --- Virtual Environment (CRITICAL) ---
+venv/
+env/
+.env
+
+# --- Database & Storage (NEVER UPLOAD THESE) ---
+*.db
+*.sqlite3
+app.db
+crypto_storage/
+uploaded_files/
+
+# --- IDE Settings ---
+.vscode/
+.idea/
+
+# --- OS Generated Files ---
+.DS_Store
+Thumbs.db
