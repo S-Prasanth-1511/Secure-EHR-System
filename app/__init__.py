@@ -1,65 +1,54 @@
-import os
-from flask import Flask, render_template
-from .config import Config, AUTHORITIES
+from flask import Flask, jsonify
 from .models import db
+import os
 
-# Import our crypto components
-from .core_crypto.abe_core import CryptoCore
-from .authorities.medical_authority import MedicalAuthority
-from .authorities.hospital_authority import HospitalAuthority
-
-# This dictionary will hold our globally initialized crypto objects
-GLOBAL_SETUP = {}
-
-# Calculate the project's root directory
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-
+# Global Cryptographic Setup
+GLOBAL_SETUP = {
+    'crypto_core': None,
+    'authorities': {}
+}
 
 def create_app():
-    app = Flask(__name__,
-                template_folder=os.path.join(PROJECT_ROOT, 'templates'),
-                static_folder=os.path.join(PROJECT_ROOT, 'static')
-               )
-    app.config.from_object(Config)
+    # Correctly point to the outer templates folder
+    app = Flask(__name__, template_folder='../templates', static_folder='../static')
+    
+    # --- FIX: Generate a RANDOM key on every start ---
+    # This ensures that whenever you restart the server, all old login sessions are invalidated immediately.
+    app.config['SECRET_KEY'] = os.urandom(24) 
+    
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     
     db.init_app(app)
 
-    with app.app_context():
-        print("--- INITIALIZING SYSTEM ---")
+    # Global Error Handlers (Keep these)
+    @app.errorhandler(500)
+    def internal_server_error(e):
+        return jsonify({"error": f"Internal Server Error: {str(e)}"}), 500
+
+    @app.errorhandler(404)
+    def not_found_error(e):
+        return jsonify({"error": "Resource not found (404)"}), 404
+
+    # Initialize Crypto (Keep this)
+    from .core_crypto.abe_core import CryptoCore
+    if GLOBAL_SETUP['crypto_core'] is None:
+        print("⚡ Initializing Cryptographic Core...")
+        core = CryptoCore()
+        core.setup_global()
+        GLOBAL_SETUP['crypto_core'] = core
         
-        # 1. Initialize Crypto
-        crypto_core = CryptoCore()
-        crypto_core.setup_global()
+        for auth in ['MA', 'HA']:
+            print(f"🔑 Initializing Authority: {auth}")
+            pk_bytes, sk_bytes = core.setup_authority(auth)
+            GLOBAL_SETUP['authorities'][auth] = {
+                'pk': core.deserialize(pk_bytes),
+                'sk': core.deserialize(sk_bytes)
+            }
 
-        # 2. Initialize Authorities (using new classes that look for MA/HA)
-        medical_auth = MedicalAuthority(crypto_core, AUTHORITIES)
-        hospital_auth = HospitalAuthority(crypto_core, AUTHORITIES)
-
-        # 3. Generate Keys
-        medical_auth.setup()
-        hospital_auth.setup()
-
-        # 4. Store in Global Setup (UPDATED KEYS: MA and HA)
-        GLOBAL_SETUP['crypto_core'] = crypto_core
-        GLOBAL_SETUP['authorities'] = {
-            "MA": medical_auth,
-            "HA": hospital_auth
-        }
-
-        GLOBAL_SETUP['public_keys'] = {
-            "MA": medical_auth.get_public_key(),
-            "HA": hospital_auth.get_public_key()
-        }
-        print("--- SYSTEM INITIALIZED AND READY ---")
-
+    with app.app_context():
         db.create_all()
-        print("Database tables created.")
-
-    from . import routes
-    app.register_blueprint(routes.bp)
-
-    @app.route('/')
-    def index():
-        return render_template('index.html')
+        from . import routes
+        app.register_blueprint(routes.bp)
 
     return app

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="grid-single" style="max-width: 400px; margin: 80px auto;">
+    <div class="card" style="text-align: center;">
+        <h2 style="justify-content: center; margin-bottom: 20px;">Secure Login</h2>
+        
+        <form id="login-form" style="display: flex; flex-direction: column; gap: 15px;">
+            <div style="text-align: left;">
+                <label>User ID (Email)</label>
+                <input type="text" id="gid" placeholder="e.g. admin@hospital.com" required>
+            </div>
+            
+            <div style="text-align: left;">
+                <label>Password</label>
+                <input type="password" id="password" placeholder="Enter password" required>
+            </div>
+            
+            <button type="submit" style="margin-top: 10px; background-color: #0b78ff;">Login to System</button>
+        </form>
+
+        <p style="margin-top: 20px; font-size: 0.9rem; color: #666;">
+            Need an account? Contact the Hospital Admin.
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const gid = document.getElementById('gid').value;
+        const password = document.getElementById('password').value;
+        
+        // Show loading state
+        const btn = e.target.querySelector('button');
+        const originalText = btn.innerText;
+        btn.innerText = "Verifying...";
+        btn.disabled = true;
+
+        try {
+            const res = await fetch('/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ gid, password })
+            });
+            
+            // Check if response is actually JSON
+            const contentType = res.headers.get("content-type");
+            if (!contentType || contentType.indexOf("application/json") === -1) {
+                throw new Error("Server Error: Received HTML instead of JSON. Check server logs.");
+            }
+
+            const data = await res.json();
+            
+            if (res.ok) {
+                window.location.href = data.redirect;
+            } else {
+                logMessage(data.error, 'error');
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        } catch (err) {
+            console.error(err);
+            logMessage("Connection Error: " + err.message, 'error');
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
+    });
+</script>
+{% endblock %}

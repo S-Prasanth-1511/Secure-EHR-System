@@ -15,7 +15,7 @@ from Crypto.Util.Padding import pad, unpad
 
 class CryptoCore:
     def __init__(self):
-        print("--- CRYPTO CORE v114.0 (FULL RAM FIX) LOADED ---")
+        print("--- CRYPTO CORE v114.1 (UNDERSCORE FIX) LOADED ---")
         self.group = PairingGroup('SS512')
         self.maabe = MaabeRW15(self.group)
         self.gp = None
@@ -70,7 +70,7 @@ class CryptoCore:
         if 'F' not in sk: sk['F'] = {}
         if 'F' not in pk: pk['F'] = {}
 
-        sk.update(pk) # Merge
+        sk.update(pk) 
         
         pk_safe = self._deep_serialize(pk)
         sk_safe = self._deep_serialize(sk)
@@ -80,13 +80,16 @@ class CryptoCore:
     def _process_attribute_string(self, full_attr_name):
         if isinstance(full_attr_name, bytes): full_attr_name = full_attr_name.decode('utf-8')
         full_attr_name = full_attr_name.strip()
+        
+        # --- FIX 1: Split only on the FIRST underscore ---
         if '_' in full_attr_name:
-            parts = full_attr_name.split('_')
+            parts = full_attr_name.split('_', 1) # Limit split to 1
             auth_id, attr_val = parts[0], parts[1]
         elif '@' in full_attr_name:
             parts = full_attr_name.split('@')
             attr_val, auth_id = parts[0], parts[1]
         else: return full_attr_name
+        
         hashed_val = hashlib.sha256(attr_val.encode('utf-8')).hexdigest()[:16].upper()
         return f"{hashed_val}@{auth_id}"
 
@@ -114,7 +117,6 @@ class CryptoCore:
         
         print(f"DEBUG: Keygen GID: '{user_gid}' | Attr: '{hashed_attribute}'")
         
-        # RAM-Only: Generate F params on the fly
         if 'F' not in ask: ask['F'] = {}
         if hashed_attribute not in ask['F']:
             print(f"DEBUG: Generating new secret param for '{hashed_attribute}'")
@@ -141,20 +143,20 @@ class CryptoCore:
         aes_iv = cipher.iv
         aes_ciphertext = cipher.encrypt(pad(envelope_bytes, 16))
 
-        # --- RAM FIX: Use passed public_keys_dict directly ---
-        # Do not try to load from disk.
         final_pks = {}
         for k, v in public_keys_dict.items():
-            # Deserialize from pickle
             pk_obj = self._deep_deserialize(pickle.loads(v))
             key_id = k.decode('utf-8') if isinstance(k, bytes) else str(k)
             final_pks[key_id] = pk_obj
         
         def hash_match(match):
-            full_attr = f"{match.group(1)}_{match.group(2)}"
+            # Capture full string "MA_DOCTOR" or "HA_CARDIO_DEPT"
+            full_attr = match.group(1) 
             return self._process_attribute_string(full_attr)
         
-        hashed_policy = re.sub(r'([A-Z]+)_([A-Z]+)', hash_match, policy_str)
+        # --- FIX 2: Better Regex for attributes with underscores ---
+        # Matches (MA or HA) followed by underscore, followed by any letters/underscores
+        hashed_policy = re.sub(r'\b((?:MA|HA)_[A-Z0-9_]+)\b', hash_match, policy_str)
         print(f"Encrypting Policy: {hashed_policy}")
         
         abe_ciphertext_dict = self.maabe.encrypt(gp, final_pks, session_key_element, hashed_policy)
@@ -231,7 +233,6 @@ class CryptoCore:
             session_key_element = self.maabe.decrypt(gp, sk_wrapper, real_ct) 
         except Exception as e:
             print(f"ABE Decryption Failed: {e}")
-            # Return error message instead of None for debugging
             return {"error": str(e)}
         
         if not session_key_element: return None

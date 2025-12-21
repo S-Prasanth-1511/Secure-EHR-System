@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Hospital Authority Dashboard <span style="font-size:1rem; color:#6c757d;">(ADMIN)</span></h1>
+
+<div class="grid-row-middle" style="grid-template-columns: repeat(2, 1fr); max-width: 1200px;">
+    
+    <div class="card">
+        <h2>1. Register New User</h2>
+        <form id="form-register">
+            <input type="text" id="reg-gid" placeholder="User GID (e.g. doctor@hosp.com)" required>
+            <input type="text" id="reg-username" placeholder="Username" required>
+            <input type="password" id="reg-password" placeholder="Password (Default: password123)">
+            <select id="reg-role">
+                <option value="user">Doctor / Staff</option>
+                <option value="admin">Admin</option>
+            </select>
+            <button type="submit">Create Account</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>2. Issue Attribute Key</h2>
+        <form id="form-issue-key">
+            <input type="text" id="key-gid" placeholder="Target User GID">
+            <div style="display:flex; gap:10px;">
+                <select id="key-authority" style="flex:1;">
+                    <option value="MA">Medical Authority</option>
+                    <option value="HA">Hospital Authority</option>
+                </select>
+                <select id="key-attribute" style="flex:1;"></select>
+            </div>
+            <button type="submit">Issue Key</button>
+        </form>
+    </div>
+
+    <div class="card danger-zone">
+        <h2 style="color:var(--danger-color)">3. Revoke Access</h2>
+        <form id="form-revoke">
+            <input type="text" id="revoke-gid" placeholder="Target User GID">
+            <div style="display:flex; gap:10px;">
+                <select id="revoke-authority" style="flex:1;">
+                    <option value="MA">Medical Authority</option>
+                    <option value="HA">Hospital Authority</option>
+                </select>
+                <select id="revoke-attribute" style="flex:1;"></select>
+            </div>
+            <button type="submit" class="danger">Revoke Key</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>4. Upload EHR (Encrypt)</h2>
+        <form id="form-upload">
+            <input type="file" id="upload-file" style="padding:10px;">
+            
+            <label>Select Access Permissions:</label>
+            <div style="background: #f8fafc; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; max-height: 200px; overflow-y: auto;">
+                
+                <div style="margin-bottom: 10px;">
+                    <strong style="color: #2c3e50; font-size: 0.85rem;">Medical Authority (MA)</strong>
+                    <div id="ma-checks" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 5px;"></div>
+                </div>
+                
+                <hr style="border: 0; border-top: 1px solid #ddd; margin: 10px 0;">
+
+                <div>
+                    <strong style="color: #2c3e50; font-size: 0.85rem;">Hospital Authority (HA)</strong>
+                    <div id="ha-checks" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 5px;"></div>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 10px; align-items: center; justify-content: space-between; font-size: 0.9rem;">
+                <span>Required Logic:</span>
+                <div style="display:flex; gap: 10px;">
+                    <label style="font-weight: normal; cursor: pointer;">
+                        <input type="radio" name="logic" value="OR" checked onchange="buildPolicy()"> Allow <b>ANY</b> (OR)
+                    </label>
+                    <label style="font-weight: normal; cursor: pointer;">
+                        <input type="radio" name="logic" value="AND" onchange="buildPolicy()"> Require <b>ALL</b> (AND)
+                    </label>
+                </div>
+            </div>
+
+            <input type="text" id="upload-policy" placeholder="Policy string..." readonly style="background: #eee; cursor: not-allowed;">
+            <button type="submit" style="background-color: #28a745;">Encrypt & Upload</button>
+        </form>
+    </div>
+
+</div>
+
+<div class="audit-section" style="margin-top: 30px;">
+    <h2>File Registry (ID Map)</h2>
+    <div class="table-wrapper" style="max-height: 250px;">
+        <table id="file-registry-table">
+            <thead>
+                <tr>
+                    <th style="width: 80px;">ID</th>
+                    <th>Filename</th>
+                    <th>Original Access Policy</th>
+                </tr>
+            </thead>
+            <tbody><tr><td colspan="3">Loading...</td></tr></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="audit-section" style="margin-top: 30px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap: wrap; gap:10px;">
+        <h2>System Audit Logs</h2>
+        
+        <div style="display: flex; gap: 10px;">
+            <input type="text" id="log-filter-user" placeholder="Filter by User (e.g. prasanth)" 
+                   style="height: 38px; width: 250px; padding: 0 10px;">
+            
+            <button onclick="fetchLogs()" style="width:auto; padding:0 20px; background:#6c757d; height: 38px;">
+                Search
+            </button>
+            
+            <button onclick="downloadLogs()" style="width:auto; padding:0 20px; background:#28a745; height: 38px; display: flex; align-items: center; gap: 5px;">
+                Download Excel/CSV
+            </button>
+        </div>
+    </div>
+    
+    <div class="table-wrapper">
+        <table id="log-table">
+            <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Status</th><th>Details</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const ATTRIBUTES = {
+        "MA": ["DOCTOR", "NURSE", "RESEARCHER", "CARDIOLOGY", "ONCOLOGY", "SURGERY"],
+        "HA": ["STAFF", "NOSTAFF", "CARDIO_DEPT", "ONCO_DEPT", "EMERGENCY", "GEN_HOSP"]
+    };
+
+    function populateDropdown(authId, attrId) {
+        const auth = document.getElementById(authId).value;
+        const sel = document.getElementById(attrId);
+        sel.innerHTML = '';
+        ATTRIBUTES[auth].forEach(a => {
+            sel.innerHTML += `<option value="${a}">${a}</option>`;
+        });
+    }
+
+    document.getElementById('key-authority').addEventListener('change', () => populateDropdown('key-authority', 'key-attribute'));
+    document.getElementById('revoke-authority').addEventListener('change', () => populateDropdown('revoke-authority', 'revoke-attribute'));
+    populateDropdown('key-authority', 'key-attribute');
+    populateDropdown('revoke-authority', 'revoke-attribute');
+
+    function initCheckboxes() {
+        const maDiv = document.getElementById('ma-checks');
+        const haDiv = document.getElementById('ha-checks');
+        ATTRIBUTES['MA'].forEach(a => {
+            maDiv.innerHTML += `<label style="font-size:0.85rem; display:flex; align-items:center; gap:5px; font-weight:normal;">
+                <input type="checkbox" value="MA_${a}" onchange="buildPolicy()"> ${a}
+            </label>`;
+        });
+        ATTRIBUTES['HA'].forEach(a => {
+            haDiv.innerHTML += `<label style="font-size:0.85rem; display:flex; align-items:center; gap:5px; font-weight:normal;">
+                <input type="checkbox" value="HA_${a}" onchange="buildPolicy()"> ${a}
+            </label>`;
+        });
+    }
+    initCheckboxes();
+
+    function buildPolicy() {
+        const checkboxes = document.querySelectorAll('#ma-checks input:checked, #ha-checks input:checked');
+        const selected = Array.from(checkboxes).map(cb => cb.value);
+        const logic = document.querySelector('input[name="logic"]:checked').value;
+        const joiner = logic === 'OR' ? ' or ' : ' and ';
+        
+        let policyStr = "";
+        if (selected.length === 0) policyStr = "";
+        else if (selected.length === 1) policyStr = selected[0];
+        else policyStr = "(" + selected.join(joiner) + ")";
+        
+        document.getElementById('upload-policy').value = policyStr;
+    }
+
+    // --- API CALLS ---
+
+    // 1. Register
+    document.getElementById('form-register').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const gid = document.getElementById('reg-gid').value;
+        const username = document.getElementById('reg-username').value;
+        const password = document.getElementById('reg-password').value || 'password123';
+        const role = document.getElementById('reg-role').value;
+        try {
+            const res = await fetch('/api/register_user', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({gid, username, password, role})
+            });
+            const d = await res.json();
+            logMessage(res.ok ? d.message : d.error, res.ok ? 'success':'error');
+            if(res.ok) {
+                document.getElementById('reg-gid').value = '';
+                document.getElementById('reg-username').value = '';
+                document.getElementById('reg-password').value = '';
+            }
+            fetchLogs();
+        } catch(e) { logMessage(e.message, 'error'); }
+    });
+
+    // 2. Issue Key
+    document.getElementById('form-issue-key').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const gid = document.getElementById('key-gid').value;
+        const auth = document.getElementById('key-authority').value;
+        const attr = document.getElementById('key-attribute').value;
+        try {
+            const res = await fetch('/api/issue_key', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({gid, authority_id:auth, attribute:attr})
+            });
+            const d = await res.json();
+            logMessage(res.ok ? d.message : d.error, res.ok ? 'success':'error');
+            fetchLogs();
+        } catch(e) { logMessage(e.message, 'error'); }
+    });
+
+    // 3. Revoke
+    document.getElementById('form-revoke').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const gid = document.getElementById('revoke-gid').value;
+        const auth = document.getElementById('revoke-authority').value;
+        const attr = document.getElementById('revoke-attribute').value;
+        if(!gid) return logMessage("Please enter a User GID", "error");
+        try {
+            const res = await fetch('/api/revoke_key', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ gid, authority_id: auth, attribute: attr })
+            });
+            const d = await res.json();
+            logMessage(res.ok ? d.message : d.error, res.ok ? 'success':'error');
+            fetchLogs();
+        } catch(e) { logMessage(e.message, 'error'); }
+    });
+
+    // 4. Upload
+    document.getElementById('form-upload').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fileIn = document.getElementById('upload-file');
+        const policy = document.getElementById('upload-policy').value;
+        if(!fileIn.files[0]) return logMessage("Please select a file", "error");
+        if(!policy) return logMessage("Please select permissions", "error");
+        
+        const fd = new FormData();
+        fd.append('file', fileIn.files[0]);
+        fd.append('filename', fileIn.files[0].name);
+        fd.append('policy', policy);
+        
+        logMessage("Encrypting & Uploading...");
+        try {
+            const res = await fetch('/api/upload_ehr', {method:'POST', body:fd});
+            const d = await res.json();
+            logMessage(res.ok ? "Uploaded ID: " + d.file_id : d.error, res.ok?'success':'error');
+            fetchLogs();
+            fetchFileRegistry(); // Refresh file list
+        } catch(e) { logMessage(e.message, 'error'); }
+    });
+
+    // --- Fetch File Registry ---
+    async function fetchFileRegistry() {
+        try {
+            const res = await fetch('/api/get_all_files');
+            const files = await res.json();
+            const tbody = document.querySelector('#file-registry-table tbody');
+            
+            if (files.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;">No files uploaded yet.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = files.map(f => 
+                `<tr>
+                    <td style="font-weight:bold;">${f.id}</td>
+                    <td style="color:#2c3e50;">${f.filename}</td>
+                    <td><code style="background:#eee; padding:2px 5px; border-radius:4px;">${f.policy}</code></td>
+                </tr>`
+            ).join('');
+        } catch(e) { console.error("Registry Error:", e); }
+    }
+
+    // --- Fetch Logs with Filter ---
+    async function fetchLogs() {
+        try {
+            const filterUser = document.getElementById('log-filter-user').value;
+            const url = filterUser 
+                ? `/api/get_logs?user=${encodeURIComponent(filterUser)}` 
+                : '/api/get_logs';
+            
+            const res = await fetch(url);
+            const logs = await res.json();
+            const tbody = document.querySelector('#log-table tbody');
+            
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No logs found.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = logs.map(l => 
+                `<tr>
+                    <td>${l.time}</td>
+                    <td><b>${l.user}</b></td>
+                    <td>${l.action}</td>
+                    <td><span class="status-${l.status}">${l.status}</span></td>
+                    <td>${l.details || '-'}</td>
+                </tr>`
+            ).join('');
+        } catch(e) { console.error(e); }
+    }
+
+    // --- NEW: Download Logic ---
+    function downloadLogs() {
+        const filterUser = document.getElementById('log-filter-user').value;
+        const url = filterUser 
+            ? `/api/download_logs?user=${encodeURIComponent(filterUser)}` 
+            : '/api/download_logs';
+        
+        // Trigger browser download
+        window.location.href = url;
+    }
+
+    // Initial Load
+    fetchLogs();
+    fetchFileRegistry();
+</script>
+{% endblock %}

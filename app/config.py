@@ -32,3 +32,11 @@ AUTHORITIES = {
         ]
     }
 }
+
+class Config:
+    # --- ADD THIS LINE ---
+    SECRET_KEY = 'my-super-secret-key-change-this-in-production' 
+    
+    # Keep your existing database config
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///app.db'
+    SQLALCHEMY_TRACK_MODIFICATIONS = False

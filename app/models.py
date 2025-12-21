@@ -5,30 +5,38 @@ db = SQLAlchemy()
 
 class User(db.Model):
     gid = db.Column(db.String(100), primary_key=True)
-    username = db.Column(db.String(100), unique=True, nullable=False)
-    keys = db.relationship('AttributeKey', backref='user', lazy=True)
+    username = db.Column(db.String(100), nullable=False)
+    password_hash = db.Column(db.String(200), nullable=False)
+    role = db.Column(db.String(20), default='user')
+    
+    def set_password(self, password):
+        self.password_hash = password 
+    
+    def check_password(self, password):
+        return self.password_hash == password
 
 class AttributeKey(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_gid = db.Column(db.String(100), db.ForeignKey('user.gid'), nullable=False)
-    attribute_name = db.Column(db.String(255), nullable=False)
+    attribute_name = db.Column(db.String(100), nullable=False)
+    # Using 'key_component' as confirmed by your previous logs
     key_component = db.Column(db.LargeBinary, nullable=False)
-    __table_args__ = (db.UniqueConstraint('user_gid', 'attribute_name', name='_user_attr_uc'),)
 
 class EhrFile(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    filename = db.Column(db.String(255), nullable=False)
-    policy = db.Column(db.String(1000), nullable=False)
+    filename = db.Column(db.String(150), nullable=False)       
+    policy = db.Column(db.String(500), nullable=False)         # Hashed Policy (For Math)
+    original_policy = db.Column(db.String(500), nullable=True) # Readable Policy (For Admin UI)
+    
     abe_ciphertext = db.Column(db.LargeBinary, nullable=False)
     aes_iv = db.Column(db.LargeBinary, nullable=False)
     aes_ciphertext = db.Column(db.LargeBinary, nullable=False)
 
-# --- NEW: AUDIT LOG MODEL ---
 class AuditLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    user_gid = db.Column(db.String(100), nullable=True) # Can be null if unknown user
-    action = db.Column(db.String(50), nullable=False)    # e.g., "DOWNLOAD_ATTEMPT"
-    file_id = db.Column(db.String(50), nullable=True)     # Which file?
-    status = db.Column(db.String(20), nullable=False)     # "SUCCESS" or "FAILURE"
-    details = db.Column(db.String(500), nullable=True)    # Error message or details
+    timestamp = db.Column(db.DateTime, default=datetime.now)
+    user_gid = db.Column(db.String(100), nullable=False)
+    action = db.Column(db.String(50), nullable=False)
+    status = db.Column(db.String(20), nullable=False)
+    file_id = db.Column(db.Integer, nullable=True)
+    details = db.Column(db.String(500), nullable=True)

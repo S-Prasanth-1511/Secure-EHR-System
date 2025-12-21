@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EHR Secure System</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    
+    <style>
+        /* --- EXISTING CSS PRESERVED --- */
+        :root { --primary-color: #0b78ff; --primary-hover: #0062d6; --danger-color: #d93b3b; --danger-hover: #b02a2a; --bg-color: #f4f7f9; --card-bg: #ffffff; --text-main: #2c3e50; --text-muted: #6c757d; --border-radius: 12px; --input-height: 48px; --shadow: 0 6px 14px rgba(0,0,0,0.06); }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: var(--bg-color); color: var(--text-main); line-height: 1.6; padding: 20px; }
+        h1 { text-align: center; margin-bottom: 40px; font-weight: 700; color: #1a202c; font-size: 2rem; }
+        h2 { font-size: 1.25rem; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #f0f0f0; color: var(--text-main); display: flex; align-items: center; gap: 10px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 30px; }
+        .grid-row-top { display: grid; grid-template-columns: repeat(3, 1fr); gap: 25px; }
+        .grid-row-middle { display: grid; grid-template-columns: repeat(2, 1fr); gap: 25px; max-width: 800px; margin: 0 auto; width: 100%; }
+        .grid-single { max-width: 500px; margin: 50px auto; }
+        @media (max-width: 992px) { .grid-row-top, .grid-row-middle { grid-template-columns: 1fr; max-width: 100%; } }
+        .card { background: var(--card-bg); border-radius: var(--border-radius); box-shadow: var(--shadow); padding: 24px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid rgba(0,0,0,0.02); }
+        .card:hover { transform: translateY(-2px); transition: transform 0.2s ease; }
+        .card.danger-zone { border-top: 4px solid var(--danger-color); }
+        form { display: flex; flex-direction: column; gap: 15px; height: 100%; }
+        label { font-size: 0.9rem; font-weight: 600; color: var(--text-muted); margin-bottom: -5px; }
+        input[type="text"], input[type="password"], input[type="file"], select { width: 100%; height: var(--input-height); padding: 0 15px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 1rem; background: #f8fafc; }
+        
+        /* --- BUTTON EFFECTS --- */
+        button { width: 100%; height: var(--input-height); border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; margin-top: auto; background-color: var(--primary-color); color: white; transition: all 0.2s; position: relative; overflow: hidden; }
+        button:hover { background-color: var(--primary-hover); transform: scale(1.02); }
+        button:active { transform: scale(0.98); }
+        button.danger { background-color: var(--danger-color); }
+        button.danger:hover { background-color: var(--danger-hover); }
+        
+        .navbar { display: flex; justify-content: flex-end; padding: 10px; gap: 10px; }
+        .nav-user { font-weight: bold; padding: 10px; }
+        .audit-section { background: white; border-radius: var(--border-radius); padding: 24px; box-shadow: var(--shadow); }
+        .table-wrapper { max-height: 400px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; min-width: 600px; }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background-color: #f8fafc; font-weight: 600; position: sticky; top: 0; }
+        .status-SUCCESS { color: #0f9d58; background: #e6f4ea; padding: 4px 8px; border-radius: 4px; font-weight: 700; }
+        .status-FAILURE { color: #d93b3b; background: #fde8e8; padding: 4px 8px; border-radius: 4px; font-weight: 700; }
+        .console-card { background: #1e1e1e; border-radius: var(--border-radius); padding: 20px; color: #00ff00; font-family: monospace; margin-top: 20px; }
+        #log { height: 150px; overflow-y: auto; white-space: pre-wrap; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        {% if user and not hide_nav %}
+        <div class="navbar">
+            <span class="nav-user">Logged in as: {{ user }}</span>
+            <button onclick="logout()" style="width: auto; padding: 0 20px; background: #6c757d;">Logout</button>
+        </div>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+
+        <div class="console-card">
+            <h3>System Status Log</h3>
+            <div id="log"><span>Ready...</span></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <script>
+        const log = document.getElementById('log');
+
+        // --- UPDATED LOG FUNCTION WITH POPUPS ---
+        function logMessage(msg, type='info') {
+            // 1. Write to Console Log (Black Box)
+            const color = type === 'error' ? '#ff8a8a' : '#0f0';
+            log.innerHTML += `<span style="color: ${color};">[${new Date().toLocaleTimeString()}] ${msg}</span>\n`;
+            log.scrollTop = log.scrollHeight;
+
+            // 2. Trigger Popup
+            if (type === 'error') {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: msg,
+                    timer: 3000,
+                    showConfirmButton: false
+                });
+            } else if (type === 'success') {
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Success!',
+                    text: msg,
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+            }
+        }
+        
+        async function logout() {
+            await fetch('/api/logout', {method:'POST'});
+            Swal.fire({
+                icon: 'success',
+                title: 'Logged Out',
+                text: 'Redirecting...',
+                timer: 1000,
+                showConfirmButton: false
+            }).then(() => {
+                window.location.href = '/login';
+            });
+        }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

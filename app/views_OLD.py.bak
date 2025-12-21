@@ -1,0 +1,40 @@
+from flask import Blueprint, render_template, session, redirect, url_for
+from .models import User  # Import User model to verify existence
+
+bp = Blueprint('views', __name__)
+
+@bp.route('/')
+def home():
+    if 'user_gid' in session:
+        return redirect(url_for('views.dashboard'))
+    return redirect(url_for('views.login_page'))
+
+@bp.route('/login')
+def login_page():
+    # If user is already logged in, send them to dashboard
+    if 'user_gid' in session:
+        return redirect(url_for('views.dashboard'))
+    return render_template('login.html')
+
+@bp.route('/dashboard')
+def dashboard():
+    # 1. Check if session cookie exists
+    if 'user_gid' not in session:
+        return redirect(url_for('views.login_page'))
+    
+    user_gid = session['user_gid']
+    
+    # 2. Verify user actually exists in the current DB
+    user = User.query.get(user_gid)
+    
+    if not user:
+        print(f"⚠️ Session found for '{user_gid}' but user is missing from DB. Clearing session.")
+        session.clear()
+        return redirect(url_for('views.login_page'))
+    
+    # 3. Valid user found -> Render Dashboard
+    if session.get('role') == 'admin':
+        return render_template('admin_dashboard.html', user=user_gid)
+    else:
+        # UPDATE: We now pass 'username=user.username' so the HTML can use it
+        return render_template('user_dashboard.html', user=user_gid, username=user.username, hide_nav=True)
