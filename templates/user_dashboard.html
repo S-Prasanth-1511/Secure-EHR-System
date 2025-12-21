@@ -38,7 +38,13 @@
 
 <div class="grid-row-middle" style="margin-top:30px;">
     <div class="card" style="grid-column: span 2;">
-        <h2>My Access History</h2>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <h2>My Access History</h2>
+            <button onclick="downloadMyLogs()" style="width:auto; padding:0 20px; background:#28a745; height: 36px; font-size: 0.9rem;">
+                Download Excel/CSV
+            </button>
+        </div>
+        
         <div class="table-wrapper">
              <table id="log-table">
                 <thead><tr><th>Time</th><th>Action</th><th>Details</th><th>Status</th></tr></thead>
@@ -100,7 +106,7 @@
         }
     }
 
-    // --- 2. DOWNLOAD ACTION ---
+    // --- 2. DOWNLOAD ACTION (FILES) ---
     async function downloadSelected() {
         const fid = document.getElementById('file-select').value;
         if(!fid) return logMessage("No file selected", "error");
@@ -175,6 +181,11 @@
                 }
             } catch(e) { Swal.fire('Error', e.message, 'error'); }
         }
+    }
+    
+    // --- 4. DOWNLOAD LOGS (NEW) ---
+    function downloadMyLogs() {
+        window.location.href = '/api/download_logs?user={{ user }}';
     }
     
     // Initial Load

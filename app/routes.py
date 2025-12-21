@@ -338,28 +338,35 @@ def download_ehr(file_id):
         print(f"Decryption Exception: {e}")
         return jsonify({"error": f"System Error: {str(e)}"}), 500
 
-# --- NEW: Download Logs as CSV (Excel Compatible) ---
+
 @bp.route('/api/download_logs', methods=['GET'])
-@admin_required
+@login_required 
 def download_logs():
+    current_user_gid = session['user_gid']
+    role = session.get('role')
+    
     target_user = request.args.get('user')
     
-    # 1. Fetch Data (Same logic as get_logs)
+    # SECURITY: If not admin, FORCE them to only see their own logs
+    if role != 'admin':
+        target_user = current_user_gid
+
+    # 1. Fetch Data
     query = AuditLog.query
     if target_user and target_user.strip():
         query = query.filter(AuditLog.user_gid.ilike(f"%{target_user.strip()}%"))
     
-    # Get all matching logs (not just limited to 100)
+    if role != 'admin' and (not target_user or not target_user.strip()):
+         query = query.filter(AuditLog.user_gid == current_user_gid)
+
     logs = query.order_by(AuditLog.timestamp.desc()).all()
     
     # 2. Create CSV in Memory
     proxy = io.StringIO()
     writer = csv.writer(proxy)
     
-    # Write Header
     writer.writerow(['Timestamp', 'User GID', 'Action', 'Status', 'File ID', 'Details'])
     
-    # Write Rows
     for l in logs:
         writer.writerow([
             l.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
@@ -370,13 +377,18 @@ def download_logs():
             l.details or ''
         ])
     
-    # 3. Prepare File for Download
     mem = io.BytesIO()
     mem.write(proxy.getvalue().encode('utf-8'))
     mem.seek(0)
     proxy.close()
     
-    filename = f"audit_logs_{target_user}.csv" if target_user else "audit_logs_full.csv"
+    # --- FILENAME CHANGE HERE ---
+    if target_user:
+        # split('@')[0] takes 'prasanth@hospital.com' and keeps only 'prasanth'
+        short_name = target_user.split('@')[0]
+        filename = f"audit_logs_{short_name}.csv"
+    else:
+        filename = "audit_logs_full.csv"
     
     return send_file(
         mem,

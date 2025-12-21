@@ -41,7 +41,6 @@
         th { background-color: #f8fafc; font-weight: 600; position: sticky; top: 0; }
         .status-SUCCESS { color: #0f9d58; background: #e6f4ea; padding: 4px 8px; border-radius: 4px; font-weight: 700; }
         .status-FAILURE { color: #d93b3b; background: #fde8e8; padding: 4px 8px; border-radius: 4px; font-weight: 700; }
-        .console-card { background: #1e1e1e; border-radius: var(--border-radius); padding: 20px; color: #00ff00; font-family: monospace; margin-top: 20px; }
         #log { height: 150px; overflow-y: auto; white-space: pre-wrap; font-size: 0.9rem; }
     </style>
 </head>
@@ -55,26 +54,18 @@
         {% endif %}
 
         {% block content %}{% endblock %}
-
-        <div class="console-card">
-            <h3>System Status Log</h3>
-            <div id="log"><span>Ready...</span></div>
-        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
     <script>
-        const log = document.getElementById('log');
-
-        // --- UPDATED LOG FUNCTION WITH POPUPS ---
+        
+        // --- UPDATED LOG FUNCTION (Popups Only) ---
         function logMessage(msg, type='info') {
-            // 1. Write to Console Log (Black Box)
-            const color = type === 'error' ? '#ff8a8a' : '#0f0';
-            log.innerHTML += `<span style="color: ${color};">[${new Date().toLocaleTimeString()}] ${msg}</span>\n`;
-            log.scrollTop = log.scrollHeight;
+            // Log to browser developer console for debugging
+            console.log(`[${type}] ${msg}`);
 
-            // 2. Trigger Popup
+            // Trigger Popup
             if (type === 'error') {
                 Swal.fire({
                     icon: 'error',
