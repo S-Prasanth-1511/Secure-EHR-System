@@ -2,8 +2,8 @@
 
 {% block content %}
 
-<div style="display: flex; justify-content: flex-end; align-items: center; gap: 15px; margin-bottom: 20px;">
-    <span style="font-weight: bold; color: #2c3e50;">Logged in as: {{ user }}</span>
+<div class="navbar-user-layout">
+    <span>Logged in as: {{ user }}</span>
     
     <button onclick="showPasswordModal()" style="width: auto; padding: 0 15px; height: 36px; font-size: 0.9rem; background-color: #f39c12;">
         Update Password
@@ -29,15 +29,15 @@
     <div class="card">
         <h2>Access EHR Records</h2>
         <div style="margin-bottom:15px;">
-            <label>Available Files</label>
+            <label style="display:block; margin-bottom:5px;">Available Files</label>
             <select id="file-select" style="margin-bottom:10px;"></select>
         </div>
         <button onclick="downloadSelected()">Decrypt & Download</button>
     </div>
 </div>
 
-<div class="grid-row-middle" style="margin-top:30px;">
-    <div class="card" style="grid-column: span 2;">
+<div class="grid-row-middle" style="margin-top:30px; grid-template-columns: 1fr;">
+    <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
             <h2>My Access History</h2>
             <button onclick="downloadMyLogs()" style="width:auto; padding:0 20px; background:#28a745; height: 36px; font-size: 0.9rem;">
@@ -57,8 +57,13 @@
 
 {% block scripts %}
 <script>
+    // --- GLOBAL FLAG TO PREVENT GHOST REQUESTS ---
+    window.isFrozenRedirecting = false;
+
     // --- 1. DATA LOADING ---
     async function loadData() {
+        if (window.isFrozenRedirecting) return; // Stop if we are exiting
+
         try {
             // Load Keys
             const kRes = await fetch('/api/my_keys');
@@ -85,21 +90,22 @@
             const lRes = await fetch('/api/get_logs?ts=' + new Date().getTime()); 
             const logs = await lRes.json();
             
-            // Filter logs client-side
-            const myLogs = logs.filter(l => l.user === "{{ user }}");
-            
             const tbody = document.querySelector('#log-table tbody');
-            if (myLogs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#999;">No history found for {{ user }}</td></tr>';
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#999;">No history found.</td></tr>';
             } else {
-                tbody.innerHTML = myLogs.map(l => 
-                    `<tr>
+                tbody.innerHTML = logs.map(l => {
+                    const warning = l.is_anomaly 
+                        ? "⚠️ <span style='color:red; font-size:0.8rem; font-weight:bold;'>Suspicious Activity Detected</span><br>" 
+                        : "";
+                    
+                    return `<tr>
                         <td>${l.time}</td>
                         <td>${l.action}</td>
-                        <td>${l.details || '-'}</td>
+                        <td>${warning}${l.details || '-'}</td>
                         <td><span class="status-${l.status}">${l.status}</span></td>
                     </tr>`
-                ).join('');
+                }).join('');
             }
         } catch (e) {
             console.error("Error loading data:", e);
@@ -114,6 +120,7 @@
         logMessage(`Requesting decryption for File ${fid}...`);
         try {
             const res = await fetch(`/api/download_ehr/${fid}`, {method:'POST'});
+            
             if(res.ok) {
                 const blob = await res.blob();
                 const url = window.URL.createObjectURL(blob);
@@ -123,16 +130,41 @@
                 logMessage("Decryption SUCCESS. Downloading...", "success");
             } else {
                 const d = await res.json();
+                
+                // --- FIX: DETECT FREEZE AND STOP BACKGROUND REQUESTS ---
+                if (d.error && (d.error.includes("Frozen") || d.error.includes("CRITICAL") || d.error.includes("AI Security"))) {
+                    window.isFrozenRedirecting = true; // Raise the Flag
+                    
+                    await Swal.fire({
+                        icon: 'error',
+                        title: 'ACCOUNT FROZEN',
+                        text: 'Security Alert: Your account has been locked due to suspicious activity.',
+                        confirmButtonColor: '#d93b3b',
+                        allowOutsideClick: false,
+                        confirmButtonText: 'Exit System'
+                    });
+                    window.location.href = '/login'; // Force Redirect
+                    return; // Stop execution here
+                }
+                
                 throw new Error(d.error);
             }
         } catch(e) { 
-            logMessage(e.message, "error"); 
+            if (e.message.includes("Frozen") || e.message.includes("CRITICAL")) {
+                 window.isFrozenRedirecting = true;
+                 window.location.href = '/login';
+            } else {
+                 logMessage(e.message, "error"); 
+            }
         } finally {
-            setTimeout(loadData, 500);
+            // --- FIX: Only reload data if we are NOT frozen ---
+            if (!window.isFrozenRedirecting) {
+                setTimeout(loadData, 500);
+            }
         }
     }
 
-    // --- 3. PASSWORD POPUP MODAL ---
+    // --- 3. PASSWORD POPUP ---
     async function showPasswordModal() {
         const { value: formValues } = await Swal.fire({
             title: 'Update Password',
@@ -183,12 +215,10 @@
         }
     }
     
-    // --- 4. DOWNLOAD LOGS (NEW) ---
     function downloadMyLogs() {
         window.location.href = '/api/download_logs?user={{ user }}';
     }
     
-    // Initial Load
     loadData();
 </script>
 {% endblock %}

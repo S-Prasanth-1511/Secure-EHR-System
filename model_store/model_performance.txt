@@ -1,0 +1,24 @@
+
+    ========================================
+    AI MODEL PERFORMANCE REPORT
+    ========================================
+    Model: Isolation Forest (Unsupervised)
+    Training Time: 0.2082 seconds
+    Training Samples: 5000
+    
+    CONFUSION MATRIX:
+    [[ 162   86]
+ [  87 4665]]
+    
+    CLASSIFICATION REPORT:
+                  precision    recall  f1-score   support
+
+Anomaly (-1)       0.65      0.65      0.65       248
+  Normal (1)       0.98      0.98      0.98      4752
+
+    accuracy                           0.97      5000
+   macro avg       0.82      0.82      0.82      5000
+weighted avg       0.97      0.97      0.97      5000
+
+    ========================================
+    

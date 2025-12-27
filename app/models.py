@@ -3,17 +3,24 @@ from datetime import datetime
 
 db = SQLAlchemy()
 
+# app/models.py
+
 class User(db.Model):
     gid = db.Column(db.String(100), primary_key=True)
     username = db.Column(db.String(100), nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
     role = db.Column(db.String(20), default='user')
     
+    # --- NEW: Freeze Account Flag ---
+    is_frozen = db.Column(db.Boolean, default=False) 
+    
     def set_password(self, password):
         self.password_hash = password 
     
     def check_password(self, password):
         return self.password_hash == password
+
+# ... (Keep AttributeKey, EhrFile, AuditLog unchanged) ...
 
 class AttributeKey(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -40,3 +47,7 @@ class AuditLog(db.Model):
     status = db.Column(db.String(20), nullable=False)
     file_id = db.Column(db.Integer, nullable=True)
     details = db.Column(db.String(500), nullable=True)
+    
+    # --- NEW AI FIELDS ---
+    anomaly_score = db.Column(db.Float, default=0.0) # Raw score (e.g. -0.65)
+    is_anomaly = db.Column(db.Boolean, default=False) # Flag (True/False)

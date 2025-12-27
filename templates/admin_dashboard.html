@@ -1,12 +1,28 @@
 {% extends "base.html" %}
 
 {% block content %}
+
+<div style="display: flex; justify-content: flex-end; align-items: center; gap: 15px; margin-bottom: 20px;">
+    <span style="font-weight: bold; color: #2c3e50;">Logged in as: {{ user }}</span>
+    <button onclick="logout()" style="width: auto; padding: 0 15px; height: 36px; font-size: 0.9rem; background-color: #6c757d;">
+        Logout
+    </button>
+</div>
+
 <h1>Hospital Authority Dashboard <span style="font-size:1rem; color:#6c757d;">(ADMIN)</span></h1>
 
-<div class="grid-row-middle" style="grid-template-columns: repeat(2, 1fr); max-width: 1200px;">
+<div class="dashboard-grid">
     
+    <div class="card danger-zone full-width">
+        <h2 style="color:var(--danger-color)">⚠️ Frozen / Suspicious Accounts</h2>
+        <div id="frozen-list" style="display:flex; flex-direction: column; gap:10px; padding:10px; background:#fff5f5; border-radius:8px; min-height: 40px; width: 100%;">
+            <span style="color:#666; font-style:italic;">Loading status...</span>
+        </div>
+        <button onclick="fetchUserStatus()" style="width:200px; margin-top:10px; font-size:0.8rem; background:#6c757d;">Refresh Status</button>
+    </div>
+
     <div class="card">
-        <h2>1. Register New User</h2>
+        <h2>Register New User</h2>
         <form id="form-register">
             <input type="text" id="reg-gid" placeholder="User GID (e.g. doctor@hosp.com)" required>
             <input type="text" id="reg-username" placeholder="Username" required>
@@ -20,7 +36,7 @@
     </div>
 
     <div class="card">
-        <h2>2. Issue Attribute Key</h2>
+        <h2>Issue Attribute Key</h2>
         <form id="form-issue-key">
             <input type="text" id="key-gid" placeholder="Target User GID">
             <div style="display:flex; gap:10px;">
@@ -35,7 +51,7 @@
     </div>
 
     <div class="card danger-zone">
-        <h2 style="color:var(--danger-color)">3. Revoke Access</h2>
+        <h2 style="color:var(--danger-color)">Revoke Access</h2>
         <form id="form-revoke">
             <input type="text" id="revoke-gid" placeholder="Target User GID">
             <div style="display:flex; gap:10px;">
@@ -50,40 +66,33 @@
     </div>
 
     <div class="card">
-        <h2>4. Upload EHR (Encrypt)</h2>
+        <h2>Upload EHR</h2>
         <form id="form-upload">
-            <input type="file" id="upload-file" style="padding:10px;">
+            <input type="file" id="upload-file" style="padding:10px; border:1px dashed #ccc;">
             
-            <label>Select Access Permissions:</label>
-            <div style="background: #f8fafc; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; max-height: 200px; overflow-y: auto;">
+            <label style="margin-top:5px; display:block;">Access Permissions:</label>
+            <div style="background:#f8fafc; padding:10px; height:120px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:6px;">
+                <strong style="color:#0b78ff; font-size:0.85rem;">Medical Authority (MA)</strong>
+                <div id="ma-checks" class="checkbox-grid"></div>
                 
-                <div style="margin-bottom: 10px;">
-                    <strong style="color: #2c3e50; font-size: 0.85rem;">Medical Authority (MA)</strong>
-                    <div id="ma-checks" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 5px;"></div>
-                </div>
+                <hr style="margin:8px 0; border:0; border-top:1px solid #ddd;">
                 
-                <hr style="border: 0; border-top: 1px solid #ddd; margin: 10px 0;">
-
-                <div>
-                    <strong style="color: #2c3e50; font-size: 0.85rem;">Hospital Authority (HA)</strong>
-                    <div id="ha-checks" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 5px;"></div>
-                </div>
+                <strong style="color:#0b78ff; font-size:0.85rem;">Hospital Authority (HA)</strong>
+                <div id="ha-checks" class="checkbox-grid"></div>
             </div>
 
-            <div style="display: flex; gap: 10px; align-items: center; justify-content: space-between; font-size: 0.9rem;">
-                <span>Required Logic:</span>
-                <div style="display:flex; gap: 10px;">
-                    <label style="font-weight: normal; cursor: pointer;">
-                        <input type="radio" name="logic" value="OR" checked onchange="buildPolicy()"> Allow <b>ANY</b> (OR)
-                    </label>
-                    <label style="font-weight: normal; cursor: pointer;">
-                        <input type="radio" name="logic" value="AND" onchange="buildPolicy()"> Require <b>ALL</b> (AND)
-                    </label>
-                </div>
+            <div style="display: flex; gap: 15px; align-items: center; background:#eee; padding:5px 10px; border-radius:6px;">
+                <span style="font-size:0.85rem; font-weight:bold; color:#555;">Logic:</span>
+                <label style="font-size:0.85rem; display:flex; gap:5px; cursor:pointer; font-weight:normal;">
+                    <input type="radio" name="logic" value="OR" checked onchange="buildPolicy()"> Allow ANY (OR)
+                </label>
+                <label style="font-size:0.85rem; display:flex; gap:5px; cursor:pointer; font-weight:normal;">
+                    <input type="radio" name="logic" value="AND" onchange="buildPolicy()"> Require ALL (AND)
+                </label>
             </div>
 
-            <input type="text" id="upload-policy" placeholder="Policy string..." readonly style="background: #eee; cursor: not-allowed;">
-            <button type="submit" style="background-color: #28a745;">Encrypt & Upload</button>
+            <input type="text" id="upload-policy" placeholder="Generated Policy string..." readonly style="background:#f1f1f1; font-size:0.85rem; color:#555;">
+            <button type="submit" style="background-color:#28a745;">Encrypt & Upload</button>
         </form>
     </div>
 
@@ -106,34 +115,29 @@
 </div>
 
 <div class="audit-section" style="margin-top: 30px;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap: wrap; gap:10px;">
-        <h2>System Audit Logs</h2>
-        
-        <div style="display: flex; gap: 10px;">
-            <input type="text" id="log-filter-user" placeholder="Filter by User (e.g. prasanth)" 
-                   style="height: 38px; width: 250px; padding: 0 10px;">
-            
-            <button onclick="fetchLogs()" style="width:auto; padding:0 20px; background:#6c757d; height: 38px;">
-                Search
-            </button>
-            
-            <button onclick="downloadLogs()" style="width:auto; padding:0 20px; background:#28a745; height: 38px; display: flex; align-items: center; gap: 5px;">
-                Download Excel/CSV
-            </button>
+    <div class="header-row">
+        <h2>System Audit Logs (AI Enhanced)</h2>
+        <div class="controls">
+            <input type="text" id="log-filter-user" placeholder="Filter User...">
+            <button onclick="fetchLogs()" style="background:#6c757d;">Refresh Logs</button>
+            <button onclick="fetchLogs()" style="background:#0b78ff;">Search</button>
+            <button onclick="downloadLogs()" style="background:#28a745;">Download CSV</button>
         </div>
     </div>
     
     <div class="table-wrapper">
         <table id="log-table">
-            <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Status</th><th>Details</th></tr></thead>
+            <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Status</th><th>Risk?</th><th>Details</th></tr></thead>
             <tbody></tbody>
         </table>
     </div>
 </div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
+    // --- DROPDOWNS & CHECKBOXES ---
     const ATTRIBUTES = {
         "MA": ["DOCTOR", "NURSE", "RESEARCHER", "CARDIOLOGY", "ONCOLOGY", "SURGERY"],
         "HA": ["STAFF", "NOSTAFF", "CARDIO_DEPT", "ONCO_DEPT", "EMERGENCY", "GEN_HOSP"]
@@ -141,11 +145,8 @@
 
     function populateDropdown(authId, attrId) {
         const auth = document.getElementById(authId).value;
-        const sel = document.getElementById(attrId);
-        sel.innerHTML = '';
-        ATTRIBUTES[auth].forEach(a => {
-            sel.innerHTML += `<option value="${a}">${a}</option>`;
-        });
+        const sel = document.getElementById(attrId); sel.innerHTML = '';
+        ATTRIBUTES[auth].forEach(a => sel.innerHTML += `<option value="${a}">${a}</option>`);
     }
 
     document.getElementById('key-authority').addEventListener('change', () => populateDropdown('key-authority', 'key-attribute'));
@@ -156,101 +157,119 @@
     function initCheckboxes() {
         const maDiv = document.getElementById('ma-checks');
         const haDiv = document.getElementById('ha-checks');
-        ATTRIBUTES['MA'].forEach(a => {
-            maDiv.innerHTML += `<label style="font-size:0.85rem; display:flex; align-items:center; gap:5px; font-weight:normal;">
-                <input type="checkbox" value="MA_${a}" onchange="buildPolicy()"> ${a}
-            </label>`;
-        });
-        ATTRIBUTES['HA'].forEach(a => {
-            haDiv.innerHTML += `<label style="font-size:0.85rem; display:flex; align-items:center; gap:5px; font-weight:normal;">
-                <input type="checkbox" value="HA_${a}" onchange="buildPolicy()"> ${a}
-            </label>`;
-        });
+        ATTRIBUTES['MA'].forEach(a => maDiv.innerHTML += `<label><input type="checkbox" value="MA_${a}" onchange="buildPolicy()"> ${a}</label>`);
+        ATTRIBUTES['HA'].forEach(a => haDiv.innerHTML += `<label><input type="checkbox" value="HA_${a}" onchange="buildPolicy()"> ${a}</label>`);
     }
     initCheckboxes();
-
+    
     function buildPolicy() {
         const checkboxes = document.querySelectorAll('#ma-checks input:checked, #ha-checks input:checked');
         const selected = Array.from(checkboxes).map(cb => cb.value);
         const logic = document.querySelector('input[name="logic"]:checked').value;
         const joiner = logic === 'OR' ? ' or ' : ' and ';
-        
-        let policyStr = "";
-        if (selected.length === 0) policyStr = "";
-        else if (selected.length === 1) policyStr = selected[0];
-        else policyStr = "(" + selected.join(joiner) + ")";
-        
-        document.getElementById('upload-policy').value = policyStr;
+        document.getElementById('upload-policy').value = selected.length > 0 ? (selected.length===1 ? selected[0] : "(" + selected.join(joiner) + ")") : "";
     }
 
-    // --- API CALLS ---
+    // --- FROZEN USERS ---
+    async function fetchUserStatus() {
+        try {
+            const res = await fetch('/api/get_users_status');
+            const users = await res.json();
+            const container = document.getElementById('frozen-list');
+            const frozenUsers = users.filter(u => u.is_frozen);
+            
+            if (frozenUsers.length === 0) {
+                container.innerHTML = '<span style="color:green; font-weight:bold; padding:5px;">✅ No frozen accounts. System Healthy.</span>';
+            } else {
+                container.innerHTML = frozenUsers.map(u => `
+                    <div style="background:white; border-left: 4px solid #d93b3b; padding:10px 15px; border-radius:4px; display:flex; justify-content: space-between; align-items:center; width: 100%; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
+                        <span style="font-weight:bold; color:#333;">${u.gid}</span> 
+                        <button onclick="unfreezeUser('${u.gid}')" style="background:#28a745; color:white; border:none; border-radius:4px; padding:5px 15px; width:auto; font-size:0.8rem;">UNFREEZE ACCOUNT</button>
+                    </div>
+                `).join('');
+            }
+        } catch(e) { console.error(e); }
+    }
 
-    // 1. Register
+    // --- NEW: UNFREEZE WITH SWEETALERT (No 'localhost says...') ---
+    async function unfreezeUser(gid) {
+        // Updated to use SweetAlert instead of native confirm()
+        const result = await Swal.fire({
+            title: 'Unfreeze Account?',
+            text: `Are you sure you want to reactivate ${gid}?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#28a745',
+            cancelButtonColor: '#d33',
+            confirmButtonText: 'Yes, Unfreeze'
+        });
+
+        if (!result.isConfirmed) return;
+
+        try {
+            const res = await fetch('/api/unfreeze_user', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({gid})
+            });
+            const d = await res.json();
+            if(res.ok) { 
+                Swal.fire('Unfrozen!', d.message, 'success'); 
+                fetchUserStatus(); 
+                fetchLogs(); 
+            } else {
+                Swal.fire('Error', d.error, 'error');
+            }
+        } catch(e) { logMessage(e.message, 'error'); }
+    }
+
+    // --- FORMS (Prevent Refresh) ---
     document.getElementById('form-register').addEventListener('submit', async (e) => {
         e.preventDefault();
         const gid = document.getElementById('reg-gid').value;
         const username = document.getElementById('reg-username').value;
-        const password = document.getElementById('reg-password').value || 'password123';
+        const password = document.getElementById('reg-password').value;
         const role = document.getElementById('reg-role').value;
         try {
-            const res = await fetch('/api/register_user', {
-                method:'POST', headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({gid, username, password, role})
-            });
+            const res = await fetch('/api/register_user', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({gid, username, password, role})});
             const d = await res.json();
-            logMessage(res.ok ? d.message : d.error, res.ok ? 'success':'error');
-            if(res.ok) {
-                document.getElementById('reg-gid').value = '';
-                document.getElementById('reg-username').value = '';
-                document.getElementById('reg-password').value = '';
-            }
-            fetchLogs();
+            logMessage(res.ok ? d.message : d.error, res.ok?'success':'error');
+            if(res.ok) { e.target.reset(); fetchUserStatus(); fetchLogs(); }
         } catch(e) { logMessage(e.message, 'error'); }
     });
 
-    // 2. Issue Key
     document.getElementById('form-issue-key').addEventListener('submit', async (e) => {
         e.preventDefault();
         const gid = document.getElementById('key-gid').value;
         const auth = document.getElementById('key-authority').value;
         const attr = document.getElementById('key-attribute').value;
         try {
-            const res = await fetch('/api/issue_key', {
-                method:'POST', headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({gid, authority_id:auth, attribute:attr})
-            });
+            const res = await fetch('/api/issue_key', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({gid, authority_id:auth, attribute:attr})});
             const d = await res.json();
             logMessage(res.ok ? d.message : d.error, res.ok ? 'success':'error');
-            fetchLogs();
+            if(res.ok) fetchLogs();
         } catch(e) { logMessage(e.message, 'error'); }
     });
 
-    // 3. Revoke
     document.getElementById('form-revoke').addEventListener('submit', async (e) => {
         e.preventDefault();
         const gid = document.getElementById('revoke-gid').value;
         const auth = document.getElementById('revoke-authority').value;
         const attr = document.getElementById('revoke-attribute').value;
-        if(!gid) return logMessage("Please enter a User GID", "error");
         try {
-            const res = await fetch('/api/revoke_key', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ gid, authority_id: auth, attribute: attr })
-            });
+            const res = await fetch('/api/revoke_key', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({gid, authority_id:auth, attribute:attr})});
             const d = await res.json();
             logMessage(res.ok ? d.message : d.error, res.ok ? 'success':'error');
-            fetchLogs();
+            if(res.ok) fetchLogs();
         } catch(e) { logMessage(e.message, 'error'); }
     });
 
-    // 4. Upload
     document.getElementById('form-upload').addEventListener('submit', async (e) => {
         e.preventDefault();
         const fileIn = document.getElementById('upload-file');
         const policy = document.getElementById('upload-policy').value;
-        if(!fileIn.files[0]) return logMessage("Please select a file", "error");
-        if(!policy) return logMessage("Please select permissions", "error");
-        
+        if(!fileIn.files[0]) return logMessage("Select a file", "error");
+        if(!policy) return logMessage("Select permissions", "error");
+
         const fd = new FormData();
         fd.append('file', fileIn.files[0]);
         fd.append('filename', fileIn.files[0].name);
@@ -261,75 +280,46 @@
             const res = await fetch('/api/upload_ehr', {method:'POST', body:fd});
             const d = await res.json();
             logMessage(res.ok ? "Uploaded ID: " + d.file_id : d.error, res.ok?'success':'error');
-            fetchLogs();
-            fetchFileRegistry(); // Refresh file list
+            if(res.ok) { e.target.reset(); fetchLogs(); fetchFileRegistry(); }
         } catch(e) { logMessage(e.message, 'error'); }
     });
 
-    // --- Fetch File Registry ---
+    // --- DATA FETCHING ---
     async function fetchFileRegistry() {
         try {
             const res = await fetch('/api/get_all_files');
             const files = await res.json();
             const tbody = document.querySelector('#file-registry-table tbody');
-            
-            if (files.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;">No files uploaded yet.</td></tr>';
-                return;
-            }
-
-            tbody.innerHTML = files.map(f => 
-                `<tr>
-                    <td style="font-weight:bold;">${f.id}</td>
-                    <td style="color:#2c3e50;">${f.filename}</td>
-                    <td><code style="background:#eee; padding:2px 5px; border-radius:4px;">${f.policy}</code></td>
-                </tr>`
-            ).join('');
-        } catch(e) { console.error("Registry Error:", e); }
-    }
-
-    // --- Fetch Logs with Filter ---
-    async function fetchLogs() {
-        try {
-            const filterUser = document.getElementById('log-filter-user').value;
-            const url = filterUser 
-                ? `/api/get_logs?user=${encodeURIComponent(filterUser)}` 
-                : '/api/get_logs';
-            
-            const res = await fetch(url);
-            const logs = await res.json();
-            const tbody = document.querySelector('#log-table tbody');
-            
-            if (logs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No logs found.</td></tr>';
-                return;
-            }
-
-            tbody.innerHTML = logs.map(l => 
-                `<tr>
-                    <td>${l.time}</td>
-                    <td><b>${l.user}</b></td>
-                    <td>${l.action}</td>
-                    <td><span class="status-${l.status}">${l.status}</span></td>
-                    <td>${l.details || '-'}</td>
-                </tr>`
-            ).join('');
+            if(files.length === 0) { tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;">No files.</td></tr>'; return; }
+            tbody.innerHTML = files.map(f => `<tr><td style="font-weight:bold;">${f.id}</td><td>${f.filename}</td><td><code style="background:#eee;">${f.policy}</code></td></tr>`).join('');
         } catch(e) { console.error(e); }
     }
 
-    // --- NEW: Download Logic ---
+    async function fetchLogs() {
+        try {
+            const filter = document.getElementById('log-filter-user').value;
+            const url = filter ? `/api/get_logs?user=${filter}` : '/api/get_logs';
+            const res = await fetch(url);
+            const logs = await res.json();
+            const tbody = document.querySelector('#log-table tbody');
+            if(logs.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No logs found.</td></tr>'; return; }
+            tbody.innerHTML = logs.map(l => {
+                const riskStyle = l.is_anomaly ? "background-color:#fff5f5; color:#d93b3b; font-weight:bold;" : "";
+                const riskIcon = l.is_anomaly ? "🔴 YES" : "<span style='color:#ccc'>-</span>";
+                return `<tr style="${riskStyle}"><td>${l.time}</td><td>${l.user}</td><td>${l.action}</td><td>${l.status}</td><td>${riskIcon}</td><td>${l.details}</td></tr>`;
+            }).join('');
+        } catch(e) { console.error(e); }
+    }
+
     function downloadLogs() {
-        const filterUser = document.getElementById('log-filter-user').value;
-        const url = filterUser 
-            ? `/api/download_logs?user=${encodeURIComponent(filterUser)}` 
-            : '/api/download_logs';
-        
-        // Trigger browser download
+        const filter = document.getElementById('log-filter-user').value;
+        const url = filter ? `/api/download_logs?user=${filter}` : '/api/download_logs';
         window.location.href = url;
     }
 
-    // Initial Load
     fetchLogs();
     fetchFileRegistry();
+    fetchUserStatus();
+    setInterval(fetchUserStatus, 5000); 
 </script>
 {% endblock %}

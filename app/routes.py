@@ -1,20 +1,49 @@
 from flask import Blueprint, request, jsonify, send_file, session, redirect, url_for, render_template
 from . import db, GLOBAL_SETUP
 from .models import User, AttributeKey, EhrFile, AuditLog
+from ai.predict import detect_anomaly
 import io
 import datetime
+from datetime import timedelta
 from functools import wraps
 import csv
-
+import pytz # NEW: Timezone Library
 
 bp = Blueprint('views', __name__)
+
+# --- HELPER: GET IST TIME ---
+def get_ist_time():
+    # Get current UTC time, convert to IST, and remove timezone info for DB compatibility
+    utc_now = datetime.datetime.now(pytz.utc)
+    ist_now = utc_now.astimezone(pytz.timezone('Asia/Kolkata'))
+    return ist_now.replace(tzinfo=None)
 
 # --- DECORATORS ---
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user_gid' not in session:
-            return jsonify({"error": "Unauthorized"}), 401
+        if 'user_gid' not in session: return jsonify({"error": "Unauthorized"}), 401
+        
+        user = User.query.get(session['user_gid'])
+        if user and user.is_frozen:
+            # Log the blocked attempt so Admin sees it (Using IST)
+            try:
+                new_log = AuditLog(
+                    timestamp=get_ist_time(), # Explicit IST
+                    user_gid=user.gid,
+                    action="BLOCKED_ACTION",
+                    status="FAILURE",
+                    details="Attempted action while Account Frozen",
+                    is_anomaly=True,
+                    anomaly_score=-0.5
+                )
+                db.session.add(new_log)
+                db.session.commit()
+            except: pass
+            
+            session.clear()
+            return jsonify({"error": "CRITICAL: Account Frozen"}), 403
+            
         return f(*args, **kwargs)
     return decorated_function
 
@@ -26,55 +55,108 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# --- LOGGING HELPER ---
+# --- INTELLIGENT LOGGING (IST ENABLED) ---
 def log_event(user_gid, action, status, file_id=None, details=None):
     try:
-        log = AuditLog(
-            user_gid=user_gid,
-            action=action,
-            status=status,
-            file_id=file_id,
-            details=details
+        # 1. GET CURRENT TIME IN IST
+        now_ist = get_ist_time()
+
+        # 2. TIME WINDOW (Last 10 Minutes in IST)
+        time_threshold = now_ist - timedelta(minutes=10)
+        
+        recent_logs = AuditLog.query.filter(
+            AuditLog.user_gid == user_gid,
+            AuditLog.timestamp >= time_threshold
+        ).all()
+        
+        # 3. CALCULATE METRICS
+        window_failures = 0
+        window_total = 0
+        
+        for log in recent_logs:
+            window_total += 1
+            if log.status == 'FAILURE':
+                window_failures += 1
+        
+        # Add current event
+        window_total += 1
+        if status == 'FAILURE':
+            window_failures += 1
+            
+        # Minimum Evidence Rule (Need 5 failures to trigger ratio check)
+        if window_failures < 5:
+            failure_ratio = 0.0
+        else:
+            failure_ratio = window_failures / window_total
+
+        # 4. DOWNLOAD VELOCITY
+        recent_downloads = 0
+        if action == 'DOWNLOAD' and status == 'SUCCESS':
+            for log in recent_logs:
+                if log.action == 'DOWNLOAD' and log.status == 'SUCCESS':
+                    recent_downloads += 1
+            recent_downloads += 1 
+
+        # 5. AI PREDICTION (Pass IST metrics)
+        is_risk, score = detect_anomaly(
+            user_gid=user_gid, 
+            action=action, 
+            status=status, 
+            failure_ratio=failure_ratio, 
+            download_count=recent_downloads
         )
-        db.session.add(log)
+        
+        # 6. ACTION
+        if is_risk:
+            u = User.query.get(user_gid)
+            if u and u.role != 'admin' and not u.is_frozen:
+                u.is_frozen = True
+                db.session.add(u)
+                print(f"❄️ ACCOUNT FROZEN: {user_gid} (Time: {now_ist})")
+                details = f"[AI-FROZEN] {details or ''}"
+
+        # 7. SAVE (Explicitly use IST timestamp)
+        new_log = AuditLog(
+            timestamp=now_ist, # <--- KEY FIX
+            user_gid=user_gid, 
+            action=action, 
+            status=status,
+            file_id=file_id, 
+            details=details,
+            is_anomaly=is_risk, 
+            anomaly_score=score
+        )
+        db.session.add(new_log)
         db.session.commit()
+        
     except Exception as e:
         print(f"LOGGING ERROR: {e}")
 
-# --- CORE ROUTES ---
+# --- ROUTES ---
 
 @bp.route('/')
 def home():
-    if 'user_gid' in session:
-        return redirect(url_for('views.dashboard'))
+    if 'user_gid' in session: return redirect(url_for('views.dashboard'))
     return redirect(url_for('views.login_page'))
 
-# UNIFIED LOGIN ROUTE
 @bp.route('/login', methods=['GET', 'POST'])
 def login_page():
     if request.method == 'GET':
-        if 'user_gid' in session: 
-            return redirect(url_for('views.dashboard'))
+        if 'user_gid' in session: return redirect(url_for('views.dashboard'))
         return render_template('login.html')
-    
     try:
         data = request.get_json()
-        if not data:
-            return jsonify({"error": "Invalid JSON data"}), 400
-            
         gid = data.get('gid', '').strip().lower()
         password = data.get('password')
-
         user = User.query.get(gid)
         if user and user.check_password(password):
+            if user.is_frozen: return jsonify({"error": "Account Frozen"}), 403
             session['user_gid'] = user.gid
             session['role'] = user.role
             log_event(user.gid, "LOGIN", "SUCCESS")
-            return jsonify({"message": "Login successful", "redirect": "/dashboard"}), 200
-        else:
-            return jsonify({"error": "Invalid credentials"}), 401
-    except Exception as e:
-        return jsonify({"error": f"Server Error: {str(e)}"}), 500
+            return jsonify({"message": "Success", "redirect": "/dashboard"}), 200
+        else: return jsonify({"error": "Invalid"}), 401
+    except: return jsonify({"error": "Server Error"}), 500
 
 @bp.route('/api/logout', methods=['POST'])
 def logout():
@@ -83,316 +165,172 @@ def logout():
     session.clear()
     return jsonify({"message": "Logged out"}), 200
 
+@bp.route('/api/heartbeat', methods=['GET'])
+def heartbeat():
+    if 'user_gid' not in session: return jsonify({"status": "logged_out"}), 200
+    user = User.query.get(session['user_gid'])
+    if not user or user.is_frozen:
+        session.clear()
+        return jsonify({"status": "frozen"}), 200
+    return jsonify({"status": "active"}), 200
+
 @bp.route('/dashboard')
 def dashboard():
-    # 1. Check if session cookie exists
-    if 'user_gid' not in session: 
-        return redirect(url_for('views.login_page'))
-    
+    if 'user_gid' not in session: return redirect(url_for('views.login_page'))
     user_gid = session['user_gid']
-    
-    # 2. CRITICAL FIX: Query the DB to see if this user actually exists
     user = User.query.get(user_gid)
-    
-    # 3. If user is NOT in DB (e.g. after DB reset), destroy session & redirect
-    if not user:
-        print(f"⚠️ Ghost Session Detected for '{user_gid}'. Clearing session.")
+    if not user or user.is_frozen:
         session.clear()
         return redirect(url_for('views.login_page'))
-    
-    # 4. User exists -> Render Dashboard
-    if session.get('role') == 'admin':
-        return render_template('admin_dashboard.html', user=user_gid)
-    else:
-        return render_template('user_dashboard.html', user=user_gid, username=user.username, hide_nav=True)
-
-# --- ADMIN API ENDPOINTS ---
+    if session.get('role') == 'admin': return render_template('admin_dashboard.html', user=user_gid)
+    return render_template('user_dashboard.html', user=user_gid, username=user.username, hide_nav=True)
 
 @bp.route('/api/register_user', methods=['POST'])
 @admin_required
 def register_user():
     data = request.get_json()
-    gid = data.get('gid').strip().lower()
-    username = data.get('username').strip()
-    password = data.get('password') or 'password123'
-    role = data.get('role')
-
-    if User.query.get(gid):
-        return jsonify({"error": "User already exists"}), 400
-
-    user = User(gid=gid, username=username, role=role)
+    gid, username, password, role = data.get('gid'), data.get('username'), data.get('password', 'password123'), data.get('role')
+    if User.query.get(gid): return jsonify({"error": "User exists"}), 400
+    user = User(gid=gid, username=username, role=role, is_frozen=False)
     user.set_password(password)
     db.session.add(user)
     log_event(session['user_gid'], "REGISTER", "SUCCESS", details=f"Created {gid}")
     db.session.commit()
-    return jsonify({"message": f"User {gid} registered successfully"}), 201
+    return jsonify({"message": "Registered"}), 201
+
+@bp.route('/api/unfreeze_user', methods=['POST'])
+@admin_required
+def unfreeze_user():
+    data = request.get_json()
+    gid = data.get('gid')
+    u = User.query.get(gid)
+    if u: 
+        u.is_frozen = False
+        db.session.commit()
+        log_event(session['user_gid'], "UNFREEZE", "SUCCESS", details=gid)
+    return jsonify({"message": "Unfrozen"}), 200
+
+@bp.route('/api/get_users_status', methods=['GET'])
+@admin_required
+def get_users_status():
+    users = User.query.filter(User.role != 'admin').all()
+    return jsonify([{"gid": u.gid, "username": u.username, "is_frozen": u.is_frozen} for u in users]), 200
 
 @bp.route('/api/issue_key', methods=['POST'])
 @admin_required
 def issue_key():
     data = request.get_json()
-    gid = data.get('gid').strip().lower()
-    auth = data.get('authority_id')
-    attr = data.get('attribute')
-
-    user = User.query.get(gid)
-    if not user: return jsonify({"error": "User not found"}), 404
-
-    core = GLOBAL_SETUP['crypto_core']
-    auth_keys = GLOBAL_SETUP['authorities']
-    
+    gid, auth, attr = data.get('gid'), data.get('authority_id'), data.get('attribute')
+    core, auth_keys = GLOBAL_SETUP['crypto_core'], GLOBAL_SETUP['authorities']
     try:
-        user_key_blob = core.generate_user_key(auth_keys[auth]['sk'], gid, f"{auth}_{attr}")
-        
-        new_key = AttributeKey(
-            user_gid=gid,
-            attribute_name=f"{auth}_{attr}",
-            key_component=user_key_blob
-        )
-        db.session.add(new_key)
+        key = core.generate_user_key(auth_keys[auth]['sk'], gid, f"{auth}_{attr}")
+        db.session.add(AttributeKey(user_gid=gid, attribute_name=f"{auth}_{attr}", key_component=key))
         db.session.commit()
-        
-        log_event(session['user_gid'], "ISSUE_KEY", "SUCCESS", details=f"Issued {auth}_{attr} to {gid}")
-        return jsonify({"message": "Key issued successfully"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        log_event(session['user_gid'], "ISSUE_KEY", "SUCCESS", details=f"{auth}_{attr}")
+        return jsonify({"message": "Key Issued"}), 200
+    except: return jsonify({"error": "Error"}), 500
 
 @bp.route('/api/revoke_key', methods=['POST'])
 @admin_required
 def revoke_key():
     data = request.get_json()
-    gid = data.get('gid').strip().lower()
-    auth = data.get('authority_id')
-    attr = data.get('attribute')
-    full_attr = f"{auth}_{attr}"
-
-    key_to_delete = AttributeKey.query.filter_by(user_gid=gid, attribute_name=full_attr).first()
-    
-    if key_to_delete:
-        db.session.delete(key_to_delete)
+    key = AttributeKey.query.filter_by(user_gid=data.get('gid'), attribute_name=f"{data.get('authority_id')}_{data.get('attribute')}").first()
+    if key:
+        db.session.delete(key)
         db.session.commit()
-        log_event(session['user_gid'], "REVOKE_KEY", "SUCCESS", details=f"Revoked {full_attr} from {gid}")
-        return jsonify({"message": f"Revoked {full_attr}"}), 200
-    else:
-        return jsonify({"error": "Key not found"}), 404
+        log_event(session['user_gid'], "REVOKE_KEY", "SUCCESS")
+        return jsonify({"message": "Revoked"}), 200
+    return jsonify({"error": "Not found"}), 404
 
-# --- UPDATED: Save 'original_policy' ---
 @bp.route('/api/upload_ehr', methods=['POST'])
 @admin_required
 def upload_ehr():
-    file = request.files['file']
-    filename = request.form['filename']
-    policy = request.form['policy']
-    
-    if not file or not policy: return jsonify({"error": "Missing data"}), 400
-
-    file_bytes = file.read()
-    
+    f, name, pol = request.files['file'], request.form['filename'], request.form['policy']
     core = GLOBAL_SETUP['crypto_core']
-    pks = {
-        'MA': core.serialize(GLOBAL_SETUP['authorities']['MA']['pk']),
-        'HA': core.serialize(GLOBAL_SETUP['authorities']['HA']['pk'])
-    }
-    
+    pks = {'MA': core.serialize(GLOBAL_SETUP['authorities']['MA']['pk']), 'HA': core.serialize(GLOBAL_SETUP['authorities']['HA']['pk'])}
     try:
-        enc_result = core.encrypt_file(pks, policy, file_bytes, real_filename=filename)
-        
-        new_file = EhrFile(
-            filename=filename,
-            policy=enc_result['policy'],    # Hashed
-            original_policy=policy,         # Readable (NEW)
-            abe_ciphertext=enc_result['abe_ciphertext'],
-            aes_iv=enc_result['aes_iv'],
-            aes_ciphertext=enc_result['aes_ciphertext']
-        )
+        enc = core.encrypt_file(pks, pol, f.read(), real_filename=name)
+        new_file = EhrFile(filename=name, policy=enc['policy'], original_policy=pol, abe_ciphertext=enc['abe_ciphertext'], aes_iv=enc['aes_iv'], aes_ciphertext=enc['aes_ciphertext'])
         db.session.add(new_file)
         db.session.commit()
-        
-        log_event(session['user_gid'], "UPLOAD", "SUCCESS", file_id=new_file.id, details=f"Policy: {policy}")
-        return jsonify({"message": "File uploaded", "file_id": new_file.id}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        log_event(session['user_gid'], "UPLOAD", "SUCCESS", file_id=new_file.id)
+        return jsonify({"message": "Uploaded"}), 201
+    except: return jsonify({"error": "Error"}), 500
 
-# --- UPDATED: Return 'original_policy' ---
 @bp.route('/api/get_all_files', methods=['GET'])
 @admin_required
 def get_all_files():
-    files = EhrFile.query.all()
-    file_list = []
-    for f in files:
-        file_list.append({
-            "id": f.id,
-            "filename": f.filename,
-            "policy": f.original_policy if f.original_policy else f.policy 
-        })
-    return jsonify(file_list), 200
-
-@bp.route('/api/get_logs', methods=['GET'])
-@login_required
-def get_logs():
-    user_gid = session.get('user_gid')
-    role = session.get('role')
-    target_user = request.args.get('user')
-
-    if role == 'admin':
-        query = AuditLog.query
-        if target_user and target_user.strip():
-            query = query.filter(AuditLog.user_gid.ilike(f"%{target_user.strip()}%"))
-        logs = query.order_by(AuditLog.timestamp.desc()).limit(100).all()
-    else:
-        logs = AuditLog.query.filter_by(user_gid=user_gid).order_by(AuditLog.timestamp.desc()).limit(50).all()
-
-    log_list = []
-    for l in logs:
-        log_list.append({
-            "time": l.timestamp.strftime("%Y-%m-%d %H:%M:%S"), 
-            "user": l.user_gid, 
-            "action": l.action, 
-            "status": l.status, 
-            "file": l.file_id, 
-            "details": l.details
-        })
-    return jsonify(log_list), 200
+    return jsonify([{"id": f.id, "filename": f.filename, "policy": f.original_policy} for f in EhrFile.query.all()])
 
 @bp.route('/api/my_keys')
 @login_required
 def my_keys():
-    keys = AttributeKey.query.filter_by(user_gid=session['user_gid']).all()
-    return jsonify([k.attribute_name for k in keys])
+    return jsonify([k.attribute_name for k in AttributeKey.query.filter_by(user_gid=session['user_gid']).all()])
 
 @bp.route('/api/my_files')
 @login_required
 def my_files():
-    files = EhrFile.query.all()
-    return jsonify([{
-        "id": f.id, 
-        "filename": f"patient_record_{f.id}.enc", 
-        "policy": f.policy
-    } for f in files])
+    return jsonify([{"id": f.id, "filename": f"rec_{f.id}.enc", "policy": f.policy} for f in EhrFile.query.all()])
 
 @bp.route('/api/change_password', methods=['POST'])
 @login_required
 def change_password():
     data = request.get_json()
-    user = User.query.get(session['user_gid'])
-    
-    if not user.check_password(data.get('old_password')):
-        return jsonify({"error": "Incorrect current password"}), 400
-        
-    user.set_password(data.get('new_password'))
+    u = User.query.get(session['user_gid'])
+    if not u.check_password(data.get('old_password')): return jsonify({"error": "Wrong password"}), 400
+    u.set_password(data.get('new_password'))
     db.session.commit()
-    return jsonify({"message": "Password updated successfully"}), 200
+    return jsonify({"message": "Updated"}), 200
 
-# --- FIX: Added '/api' to the start of the URL ---
 @bp.route('/api/download_ehr/<int:file_id>', methods=['POST'])
 @login_required
 def download_ehr(file_id):
+    user_gid = session['user_gid']
     try:
-        user_gid = session['user_gid']
-        
-        # 1. Fetch File
-        file_record = EhrFile.query.get(file_id)
-        if not file_record:
-            log_event(user_gid, "DOWNLOAD", "FAILURE", details=f"File ID {file_id} not found")
-            return jsonify({"error": "File not found"}), 404
-            
-        # 2. Fetch User Keys
-        user_keys = {}
-        keys_found = AttributeKey.query.filter_by(user_gid=user_gid).all()
-        
-        for key_record in keys_found:
-            if hasattr(key_record, 'key_component'):
-                user_keys[key_record.attribute_name] = key_record.key_component
-            elif hasattr(key_record, 'key'):
-                user_keys[key_record.attribute_name] = key_record.key
-            elif hasattr(key_record, 'key_blob'):
-                 user_keys[key_record.attribute_name] = key_record.key_blob
-
-        # 3. Prepare Encrypted Package
-        encrypted_package = {
-            "policy": file_record.policy,
-            "abe_ciphertext": file_record.abe_ciphertext,
-            "aes_iv": file_record.aes_iv,
-            "aes_ciphertext": file_record.aes_ciphertext
-        }
-        
-        # 4. Attempt Decryption
-        core = GLOBAL_SETUP['crypto_core']
-        result = core.decrypt_file(user_gid, user_keys, encrypted_package)
-        
-        if result and 'data' in result:
-            log_event(user_gid, "DOWNLOAD", "SUCCESS", file_id=file_id, details=f"Decryption successful for File ID: {file_id}")
-            return send_file(
-                io.BytesIO(result['data']),
-                mimetype='application/octet-stream',
-                as_attachment=True,
-                download_name=result['filename']
-            )
+        f = EhrFile.query.get(file_id)
+        if not f: return jsonify({"error": "Not found"}), 404
+        keys = {k.attribute_name: k.key_component for k in AttributeKey.query.filter_by(user_gid=user_gid).all()}
+        pkg = {"policy": f.policy, "abe_ciphertext": f.abe_ciphertext, "aes_iv": f.aes_iv, "aes_ciphertext": f.aes_ciphertext}
+        res = GLOBAL_SETUP['crypto_core'].decrypt_file(user_gid, keys, pkg)
+        if res and 'data' in res:
+            log_event(user_gid, "DOWNLOAD", "SUCCESS", file_id=file_id)
+            return send_file(io.BytesIO(res['data']), as_attachment=True, download_name=res['filename'])
         else:
-            error_msg = result.get('error', 'Policy Mismatch') if result else 'Policy Mismatch'
-            log_event(user_gid, "DOWNLOAD", "FAILURE", file_id=file_id, details=f"Access Denied: {error_msg} (File ID: {file_id})")
-            return jsonify({"error": f"Decryption failed: {error_msg}"}), 403
+            log_event(user_gid, "DOWNLOAD", "FAILURE", file_id=file_id, details="Access Denied")
+            return jsonify({"error": "Access Denied"}), 403
+    except:
+        log_event(user_gid, "DOWNLOAD", "FAILURE", file_id=file_id)
+        return jsonify({"error": "Error"}), 500
 
-    except Exception as e:
-        log_event(user_gid, "DOWNLOAD", "FAILURE", file_id=file_id, details=f"System Error on File ID: {file_id}")
-        print(f"Decryption Exception: {e}")
-        return jsonify({"error": f"System Error: {str(e)}"}), 500
-
+@bp.route('/api/get_logs', methods=['GET'])
+@login_required
+def get_logs():
+    gid, role, target = session['user_gid'], session['role'], request.args.get('user')
+    q = AuditLog.query
+    if role == 'admin' and target: q = q.filter(AuditLog.user_gid.ilike(f"%{target}%"))
+    elif role != 'admin': q = q.filter_by(user_gid=gid)
+    logs = q.order_by(AuditLog.timestamp.desc()).limit(100).all()
+    return jsonify([{"time": l.timestamp.strftime("%Y-%m-%d %H:%M:%S"), "user": l.user_gid, "action": l.action, "status": l.status, "details": l.details, "is_anomaly": l.is_anomaly} for l in logs])
 
 @bp.route('/api/download_logs', methods=['GET'])
-@login_required 
+@login_required
 def download_logs():
-    current_user_gid = session['user_gid']
-    role = session.get('role')
+    gid, role, target = session['user_gid'], session['role'], request.args.get('user')
+    q = AuditLog.query
+    if role == 'admin' and target: q = q.filter(AuditLog.user_gid.ilike(f"%{target}%"))
+    elif role != 'admin': q = q.filter_by(user_gid=gid)
+    logs = q.order_by(AuditLog.timestamp.desc()).all()
     
-    target_user = request.args.get('user')
-    
-    # SECURITY: If not admin, FORCE them to only see their own logs
-    if role != 'admin':
-        target_user = current_user_gid
-
-    # 1. Fetch Data
-    query = AuditLog.query
-    if target_user and target_user.strip():
-        query = query.filter(AuditLog.user_gid.ilike(f"%{target_user.strip()}%"))
-    
-    if role != 'admin' and (not target_user or not target_user.strip()):
-         query = query.filter(AuditLog.user_gid == current_user_gid)
-
-    logs = query.order_by(AuditLog.timestamp.desc()).all()
-    
-    # 2. Create CSV in Memory
     proxy = io.StringIO()
     writer = csv.writer(proxy)
-    
-    writer.writerow(['Timestamp', 'User GID', 'Action', 'Status', 'File ID', 'Details'])
-    
+    writer.writerow(['Timestamp', 'User GID', 'Action', 'Status', 'Risk?', 'Score', 'Details'])
     for l in logs:
-        writer.writerow([
-            l.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            l.user_gid,
-            l.action,
-            l.status,
-            l.file_id if l.file_id else '-',
-            l.details or ''
-        ])
+        writer.writerow([l.timestamp.strftime("%Y-%m-%d %H:%M:%S"), l.user_gid, l.action, l.status, "YES" if l.is_anomaly else "No", f"{l.anomaly_score:.4f}" if l.anomaly_score else "0", l.details])
     
     mem = io.BytesIO()
     mem.write(proxy.getvalue().encode('utf-8'))
     mem.seek(0)
     proxy.close()
     
-    # --- FILENAME CHANGE HERE ---
-    if target_user:
-        # split('@')[0] takes 'prasanth@hospital.com' and keeps only 'prasanth'
-        short_name = target_user.split('@')[0]
-        filename = f"audit_logs_{short_name}.csv"
-    else:
-        filename = "audit_logs_full.csv"
-    
-    return send_file(
-        mem,
-        mimetype='text/csv',
-        as_attachment=True,
-        download_name=filename
-    )
+    fname = f"{target.split('@')[0]}_logs.csv" if target else "full_logs.csv"
+    return send_file(mem, mimetype='text/csv', as_attachment=True, download_name=fname)
