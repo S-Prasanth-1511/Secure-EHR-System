@@ -5,114 +5,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EHR Secure System</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-    
-    <style>
-        /* --- MAIN VARIABLES --- */
-        :root { 
-            --primary-color: #0b78ff; 
-            --primary-hover: #0062d6; 
-            --danger-color: #d93b3b; 
-            --bg-color: #f4f7f9; 
-            --card-bg: #ffffff; 
-            --text-main: #2c3e50; 
-            --text-muted: #6c757d; 
-            --border-radius: 12px; 
-            --input-height: 42px; 
-            --shadow: 0 4px 12px rgba(0,0,0,0.05); 
-        }
-
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background-color: var(--bg-color); color: var(--text-main); line-height: 1.5; padding: 20px; }
-        
-        h1 { text-align: center; margin-bottom: 30px; font-weight: 800; color: #1a202c; font-size: 1.8rem; }
-        h2 { font-size: 1.1rem; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #f0f0f0; color: var(--text-main); font-weight: 700; }
-        
-        /* --- LAYOUT UTILS --- */
-        .container { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 30px; }
-        
-        /* 1. ADMIN GRID (Fixed 2 Columns) */
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr); 
-            gap: 25px;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        .full-width { grid-column: 1 / -1; }
-
-        /* 2. USER GRID (Restored Original Flex/Grid Logic) */
-        .grid-row-middle {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 25px;
-            align-items: start;
-        }
-
-        /* Mobile Stack */
-        @media (max-width: 850px) { 
-            .dashboard-grid { grid-template-columns: 1fr; }
-            .grid-row-middle { grid-template-columns: 1fr; }
-        }
-
-        /* Card Styles */
-        .card { background: var(--card-bg); border-radius: var(--border-radius); box-shadow: var(--shadow); padding: 24px; display: flex; flex-direction: column; gap: 15px; border: 1px solid rgba(0,0,0,0.02); height: 100%; }
-        .card.danger-zone { border-top: 4px solid var(--danger-color); }
-        
-        /* Form Elements */
-        form { display: flex; flex-direction: column; gap: 12px; }
-        label { font-size: 0.9rem; font-weight: 600; color: var(--text-muted); }
-        
-        input[type="text"], input[type="password"], input[type="file"], select { 
-            width: 100%; height: var(--input-height); padding: 0 12px; 
-            border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.95rem; background: #f8fafc; 
-        }
-        
-        /* Checkbox Grid */
-        .checkbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin-top: 5px; }
-        .checkbox-grid label { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; background: white; padding: 4px 8px; border-radius: 4px; border: 1px solid #eee; cursor: pointer; }
-
-        /* Buttons */
-        button { 
-            width: 100%; height: var(--input-height); border: none; border-radius: 8px; 
-            font-size: 0.95rem; font-weight: 600; cursor: pointer; 
-            background-color: var(--primary-color); color: white; transition: all 0.2s; 
-        }
-        button:hover { background-color: var(--primary-hover); opacity: 0.9; }
-        button.danger { background-color: var(--danger-color); }
-        
-        /* Table Styles */
-        .header-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 15px; }
-        .controls { display: flex; gap: 10px; }
-        .controls input { width: 200px; }
-        .controls button { width: auto; padding: 0 20px; }
-
-        .table-wrapper { max-height: 400px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; }
-        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #eee; }
-        th { background-color: #f8fafc; font-weight: 600; position: sticky; top: 0; z-index: 2; }
-        tr:hover { background-color: #fbfbfb; }
-
-        .status-SUCCESS { color: #0f9d58; background: #e6f4ea; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.8rem; }
-        .status-FAILURE { color: #d93b3b; background: #fde8e8; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 0.8rem; }
-
-        /* RESTORED: User Navbar Styles */
-        .navbar-user-layout { display: flex; justify-content: flex-end; align-items: center; gap: 15px; margin-bottom: 20px; }
-        .navbar-user-layout span { font-weight: bold; color: #2c3e50; }
-        
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='ehr_ui.css') }}">
 </head>
 <body>
-    <div class="container">
-        {% block content %}{% endblock %}
-    </div>
+    
+    <div id="message-container"></div>
+
+    {% block content %}{% endblock %}
 
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    
     <script>
+        // Global Helper: Show Messages (Small Toast)
         function logMessage(msg, type='info') {
-            console.log(`[${type}] ${msg}`);
-            if (type === 'error') Swal.fire({ icon: 'error', title: 'Error', text: msg, timer: 3000, showConfirmButton: false });
-            else if (type === 'success') Swal.fire({ icon: 'success', title: 'Success!', text: msg, timer: 2000, showConfirmButton: false });
+            console.log(`[${type.toUpperCase()}] ${msg}`);
+            const Toast = Swal.mixin({
+                toast: true, 
+                position: 'top-end', 
+                showConfirmButton: false, 
+                timer: 3000,
+                timerProgressBar: true,
+                didOpen: (toast) => { toast.addEventListener('mouseenter', Swal.stopTimer); toast.addEventListener('mouseleave', Swal.resumeTimer); }
+            });
+            Toast.fire({ icon: type, title: msg });
         }
         
         async function logout() {
@@ -120,32 +34,41 @@
             window.location.href = '/login';
         }
 
-        // --- SECURITY HEARTBEAT (Kicks frozen users) ---
-        // --- SECURITY HEARTBEAT (Runs every 1 second) ---
-    setInterval(async () => {
-        if (window.location.pathname === '/login' || window.location.pathname === '/') return;
-        try {
-            const res = await fetch('/api/heartbeat');
-            const data = await res.json();
+        // --- GLOBAL FREEZE HANDLER ---
+        window.isFrozenRedirecting = false;
+        
+        window.handleFreeze = async function() {
+            if (window.isFrozenRedirecting) return;
+            window.isFrozenRedirecting = true;
             
-            if (res.status === 403 || data.status === 'frozen') {
-                // STOP EVERYTHING
-                await Swal.fire({
-                    icon: 'error',
-                    title: 'SESSION TERMINATED',
-                    text: 'Security System has detected suspicious activity. Your account is temporarily frozen.',
-                    allowOutsideClick: false,
-                    allowEscapeKey: false,
-                    showConfirmButton: true,
-                    confirmButtonText: 'Log Out',
-                    confirmButtonColor: '#d93b3b'
-                });
-                window.location.href = '/login';
+            // Buttons will be centered by CSS
+            await Swal.fire({
+                icon: 'error',
+                title: 'Session Terminated',
+                text: 'Your account is temporarily frozen due to suspicious activity.',
+                allowOutsideClick: false,
+                allowEscapeKey: false,
+                showConfirmButton: true,
+                confirmButtonText: 'Log Out',
+                confirmButtonColor: '#d93b3b'
+            });
+            window.location.href = '/login';
+        };
+
+        // --- SECURITY HEARTBEAT ---
+        setInterval(async () => {
+            if (window.location.pathname === '/login' || window.location.pathname === '/') return;
+            try {
+                const res = await fetch('/api/heartbeat');
+                const data = await res.json();
+                
+                if (res.status === 403 || data.status === 'frozen') {
+                    window.handleFreeze();
+                }
+            } catch (e) { 
+                console.log("Heartbeat skipped:", e); 
             }
-        } catch (e) { 
-            console.log("Heartbeat skipped:", e); 
-        }
-    }, 1000); // Changed from 2000 to 1000 for faster reaction
+        }, 1000); 
     </script>
     {% block scripts %}{% endblock %}
 </body>

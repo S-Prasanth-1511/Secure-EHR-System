@@ -2,117 +2,110 @@
 
 {% block content %}
 
-<div class="navbar-user-layout">
-    <span>Logged in as: {{ user }}</span>
-    
-    <button onclick="showPasswordModal()" style="width: auto; padding: 0 15px; height: 36px; font-size: 0.9rem; background-color: #f39c12;">
-        Update Password
-    </button>
-    
-    <button onclick="logout()" style="width: auto; padding: 0 15px; height: 36px; font-size: 0.9rem; background-color: #6c757d;">
-        Logout
-    </button>
-</div>
+<nav class="navbar">
+    <div class="brand">EHR Secure System</div>
+    <div class="user-info">
+        <span>
+            {% if username.lower().startswith('dr') %}
+                {{ username }}
+            {% else %}
+                Dr. {{ username }}
+            {% endif %}
+            <small>({{ user }})</small>
+        </span>
+        <button onclick="showPasswordModal()" class="warning" style="padding: 5px 12px; font-size: 0.8rem;">Update Password</button>
+        <button onclick="logout()" class="secondary" style="padding: 5px 12px; font-size: 0.8rem;">Logout</button>
+    </div>
+</nav>
 
-<h1 style="text-align: center; margin-bottom: 40px; font-weight: 700; color: #1a202c; font-size: 2rem;">
-    Doctor's Portal <span style="font-size:1rem; color:#6c757d;">({{ username }})</span>
-</h1>
+<div class="main-container">
 
-<div class="grid-row-middle">
-    <div class="card">
-        <h2>My Active Attributes</h2>
-        <ul id="key-list" style="list-style:none; padding:10px;">
-            <li>Loading keys...</li>
-        </ul>
+    <div class="grid-2">
+        <div class="card">
+            <h2>🔑 Active Attributes</h2>
+            <p>Your digital keys determine which records you can decrypt.</p>
+            <ul id="key-list" style="list-style:none; padding:0; display:flex; flex-wrap:wrap; gap:8px;">
+                <li>Loading keys...</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <h2>📄 Access EHR Records</h2>
+            <p>Decrypt and download patient files.</p>
+            <div class="form-group">
+                <label>Available Files</label>
+                <select id="file-select"></select>
+                <small class="helper-text">Select a file to attempt decryption.</small>
+            </div>
+            <button onclick="downloadSelected()" style="width:100%; justify-content:center;">Decrypt & Download</button>
+        </div>
     </div>
 
-    <div class="card">
-        <h2>Access EHR Records</h2>
-        <div style="margin-bottom:15px;">
-            <label style="display:block; margin-bottom:5px;">Available Files</label>
-            <select id="file-select" style="margin-bottom:10px;"></select>
+    <div class="card full-width">
+        <div class="card-header">
+            <h2>Access History</h2>
+            <button onclick="downloadMyLogs()" class="secondary">Download My Logs</button>
         </div>
-        <button onclick="downloadSelected()">Decrypt & Download</button>
-    </div>
-</div>
-
-<div class="grid-row-middle" style="margin-top:30px; grid-template-columns: 1fr;">
-    <div class="card">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-            <h2>My Access History</h2>
-            <button onclick="downloadMyLogs()" style="width:auto; padding:0 20px; background:#28a745; height: 36px; font-size: 0.9rem;">
-                Download Excel/CSV
-            </button>
-        </div>
-        
-        <div class="table-wrapper">
-             <table id="log-table">
-                <thead><tr><th>Time</th><th>Action</th><th>Details</th><th>Status</th></tr></thead>
-                <tbody></tbody>
+        <div class="table-wrapper" style="max-height: 400px; overflow-y: auto;">
+            <table id="log-table">
+                <thead><tr><th>Time</th><th>Action</th><th>Notes</th><th>Status</th></tr></thead>
+                <tbody><tr><td colspan="4" class="text-center">Loading history...</td></tr></tbody>
             </table>
         </div>
     </div>
+
 </div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
-    // --- GLOBAL FLAG TO PREVENT GHOST REQUESTS ---
     window.isFrozenRedirecting = false;
 
-    // --- 1. DATA LOADING ---
     async function loadData() {
-        if (window.isFrozenRedirecting) return; // Stop if we are exiting
+        if (window.isFrozenRedirecting) return;
 
         try {
-            // Load Keys
             const kRes = await fetch('/api/my_keys');
+            if (kRes.status === 403) { window.handleFreeze(); return; }
             const keys = await kRes.json();
             document.getElementById('key-list').innerHTML = keys.map(k => 
-                `<li style="padding:5px; border-bottom:1px solid #eee;">🔑 ${k}</li>`
-            ).join('') || '<li>No keys issued yet.</li>';
+                `<li style="background:#e0f2fe; color:#0369a1; padding:4px 10px; border-radius:20px; font-size:0.85rem; font-weight:600;">${k}</li>`
+            ).join('') || '<li style="color:#666;">No keys issued yet.</li>';
 
-            // Load Files
             const fRes = await fetch('/api/my_files');
+            if (fRes.status === 403) { window.handleFreeze(); return; }
             const files = await fRes.json();
-            
             const currentSelection = document.getElementById('file-select').value;
-            
             document.getElementById('file-select').innerHTML = files.map(f =>
                 `<option value="${f.id}">ID ${f.id}: ${f.filename} [Policy: ${f.policy}]</option>`
             ).join('');
+            if(currentSelection) document.getElementById('file-select').value = currentSelection;
             
-            if(currentSelection) {
-                document.getElementById('file-select').value = currentSelection;
-            }
-            
-            // Fix: Add timestamp to prevent caching
             const lRes = await fetch('/api/get_logs?ts=' + new Date().getTime()); 
+            if (lRes.status === 403) { window.handleFreeze(); return; }
             const logs = await lRes.json();
-            
             const tbody = document.querySelector('#log-table tbody');
+            
             if (logs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#999;">No history found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center" style="color:#999;">No history found.</td></tr>';
             } else {
                 tbody.innerHTML = logs.map(l => {
                     const warning = l.is_anomaly 
-                        ? "⚠️ <span style='color:red; font-size:0.8rem; font-weight:bold;'>Suspicious Activity Detected</span><br>" 
+                        ? "<br><small style='color:var(--danger); font-weight:bold;'>⚠️ Suspicious Activity Flag</small>" 
                         : "";
-                    
+                    const statusClass = l.status === 'SUCCESS' ? 'status-SUCCESS' : 'status-FAILURE';
                     return `<tr>
                         <td>${l.time}</td>
                         <td>${l.action}</td>
-                        <td>${warning}${l.details || '-'}</td>
-                        <td><span class="status-${l.status}">${l.status}</span></td>
+                        <td>${l.details || '-'}${warning}</td>
+                        <td><span class="${statusClass}">${l.status}</span></td>
                     </tr>`
                 }).join('');
             }
-        } catch (e) {
-            console.error("Error loading data:", e);
-        }
+        } catch (e) { console.error("Error loading data:", e); }
     }
 
-    // --- 2. DOWNLOAD ACTION (FILES) ---
     async function downloadSelected() {
         const fid = document.getElementById('file-select').value;
         if(!fid) return logMessage("No file selected", "error");
@@ -130,69 +123,54 @@
                 logMessage("Decryption SUCCESS. Downloading...", "success");
             } else {
                 const d = await res.json();
-                
-                // --- FIX: DETECT FREEZE AND STOP BACKGROUND REQUESTS ---
                 if (d.error && (d.error.includes("Frozen") || d.error.includes("CRITICAL") || d.error.includes("AI Security"))) {
-                    window.isFrozenRedirecting = true; // Raise the Flag
-                    
-                    await Swal.fire({
-                        icon: 'error',
-                        title: 'ACCOUNT FROZEN',
-                        text: 'Security Alert: Your account has been locked due to suspicious activity.',
-                        confirmButtonColor: '#d93b3b',
-                        allowOutsideClick: false,
-                        confirmButtonText: 'Exit System'
-                    });
-                    window.location.href = '/login'; // Force Redirect
-                    return; // Stop execution here
+                    window.handleFreeze();
+                    return;
                 }
-                
                 throw new Error(d.error);
             }
         } catch(e) { 
             if (e.message.includes("Frozen") || e.message.includes("CRITICAL")) {
-                 window.isFrozenRedirecting = true;
-                 window.location.href = '/login';
+                 window.handleFreeze();
             } else {
                  logMessage(e.message, "error"); 
             }
         } finally {
-            // --- FIX: Only reload data if we are NOT frozen ---
-            if (!window.isFrozenRedirecting) {
-                setTimeout(loadData, 500);
-            }
+            if (!window.isFrozenRedirecting) setTimeout(loadData, 500);
         }
     }
 
-    // --- 3. PASSWORD POPUP ---
+    // MODAL: PASSWORD (Compact & Centered)
     async function showPasswordModal() {
         const { value: formValues } = await Swal.fire({
             title: 'Update Password',
-            width: '400px',
             html: `
-                <div style="display: flex; flex-direction: column; gap: 15px; overflow-x: hidden; padding: 0 5px;">
-                    <input id="swal-old-pass" class="swal2-input" type="password" placeholder="Current Password" style="font-size:0.9rem; margin: 0; width: 100%; box-sizing: border-box;">
-                    <input id="swal-new-pass" class="swal2-input" type="password" placeholder="New Password" style="font-size:0.9rem; margin: 0; width: 100%; box-sizing: border-box;">
-                    <input id="swal-confirm-pass" class="swal2-input" type="password" placeholder="Confirm New Password" style="font-size:0.9rem; margin: 0; width: 100%; box-sizing: border-box;">
+                <div class="modal-form-group">
+                    <label>Current Password</label>
+                    <input id="swal-old-pass" class="modal-input" type="password" placeholder="••••••••">
+                </div>
+                <div class="modal-form-group">
+                    <label>New Password</label>
+                    <input id="swal-new-pass" class="modal-input" type="password" placeholder="••••••••">
+                </div>
+                <div class="modal-form-group">
+                    <label>Confirm Password</label>
+                    <input id="swal-confirm-pass" class="modal-input" type="password" placeholder="••••••••">
                 </div>
             `,
             focusConfirm: false,
             showCancelButton: true,
             confirmButtonText: 'Update',
-            confirmButtonColor: '#f39c12',
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#2563eb', // Primary Blue
+            cancelButtonColor: '#6b7280',  // Neutral Gray
+            
             preConfirm: () => {
                 const old_pass = document.getElementById('swal-old-pass').value;
                 const new_pass = document.getElementById('swal-new-pass').value;
                 const confirm_pass = document.getElementById('swal-confirm-pass').value;
-
-                if (!old_pass || !new_pass || !confirm_pass) {
-                    Swal.showValidationMessage('All fields are required');
-                    return false;
-                }
-                if (new_pass !== confirm_pass) {
-                    Swal.showValidationMessage('Passwords do not match');
-                    return false;
-                }
+                if (!old_pass || !new_pass || !confirm_pass) { Swal.showValidationMessage('All fields required'); return false; }
+                if (new_pass !== confirm_pass) { Swal.showValidationMessage('Passwords do not match'); return false; }
                 return [old_pass, new_pass];
             }
         });
@@ -201,24 +179,17 @@
             const [old_pass, new_pass] = formValues;
             try {
                 const res = await fetch('/api/change_password', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ old_password: old_pass, new_password: new_pass })
                 });
                 const d = await res.json();
-                if(res.ok) {
-                    Swal.fire('Success', d.message, 'success');
-                } else {
-                    Swal.fire('Error', d.error, 'error');
-                }
-            } catch(e) { Swal.fire('Error', e.message, 'error'); }
+                if(res.ok) logMessage(d.message, 'success');
+                else logMessage(d.error, 'error');
+            } catch(e) { logMessage(e.message, 'error'); }
         }
     }
     
-    function downloadMyLogs() {
-        window.location.href = '/api/download_logs?user={{ user }}';
-    }
-    
+    function downloadMyLogs() { window.location.href = '/api/download_logs?user={{ user }}'; }
     loadData();
 </script>
 {% endblock %}

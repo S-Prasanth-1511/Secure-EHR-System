@@ -1,27 +1,31 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="grid-single" style="max-width: 400px; margin: 80px auto;">
-    <div class="card" style="text-align: center;">
-        <h2 style="justify-content: center; margin-bottom: 20px;">Secure Login</h2>
+<div style="display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: var(--bg-page);">
+    <div class="card" style="width: 100%; max-width: 400px; padding: 2.5rem;">
         
-        <form id="login-form" style="display: flex; flex-direction: column; gap: 15px;">
-            <div style="text-align: left;">
-                <label>User ID (Email)</label>
-                <input type="text" id="gid" placeholder="e.g. admin@hospital.com" required>
+        <div style="text-align: center; margin-bottom: 2rem;">
+            <h1 style="color: var(--primary); margin-bottom: 0.5rem;">EHR Secure System</h1>
+            <p>Authorized Personnel Only</p>
+        </div>
+        
+        <form id="login-form">
+            <div class="form-group">
+                <label for="gid">User ID</label>
+                <input type="text" id="gid" placeholder="e.g. doctor@hospital.com" required>
             </div>
             
-            <div style="text-align: left;">
-                <label>Password</label>
-                <input type="password" id="password" placeholder="Enter password" required>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" placeholder="••••••••" required>
             </div>
             
-            <button type="submit" style="margin-top: 10px; background-color: #0b78ff;">Login to System</button>
+            <button type="submit" class="btn-primary" style="width: 100%; margin-top: 10px;">Secure Login</button>
         </form>
 
-        <p style="margin-top: 20px; font-size: 0.9rem; color: #666;">
-            Need an account? Contact the Hospital Admin.
-        </p>
+        <div style="margin-top: 2rem; text-align: center; border-top: 1px solid var(--border); padding-top: 1rem;">
+            <small>Contact Admin if you forgot your credentials.</small>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -33,7 +37,6 @@
         const gid = document.getElementById('gid').value;
         const password = document.getElementById('password').value;
         
-        // Show loading state
         const btn = e.target.querySelector('button');
         const originalText = btn.innerText;
         btn.innerText = "Verifying...";
@@ -46,10 +49,9 @@
                 body: JSON.stringify({ gid, password })
             });
             
-            // Check if response is actually JSON
             const contentType = res.headers.get("content-type");
             if (!contentType || contentType.indexOf("application/json") === -1) {
-                throw new Error("Server Error: Received HTML instead of JSON. Check server logs.");
+                throw new Error("Server Error: Received HTML instead of JSON.");
             }
 
             const data = await res.json();
@@ -57,13 +59,14 @@
             if (res.ok) {
                 window.location.href = data.redirect;
             } else {
-                logMessage(data.error, 'error');
+                // Button will be centered by CSS
+                Swal.fire({ icon: 'error', title: 'Login Failed', text: data.error });
                 btn.innerText = originalText;
                 btn.disabled = false;
             }
         } catch (err) {
             console.error(err);
-            logMessage("Connection Error: " + err.message, 'error');
+            Swal.fire({ icon: 'error', title: 'System Error', text: err.message });
             btn.innerText = originalText;
             btn.disabled = false;
         }
