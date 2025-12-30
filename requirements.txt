@@ -2,5 +2,8 @@ Flask
 Flask-SQLAlchemy
 charm-crypto
 pycryptodome
+scikit-learn
+pandas
+numpy
 
 #To install all the dependencies "pip install -r requirements.txt"
